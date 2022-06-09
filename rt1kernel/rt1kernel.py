@@ -37,7 +37,6 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         ----
         dxf_file is required to have units of (mm).
         """
-
         super().__init__(dxf_file,show_print)
         self.im_shape: Union[Tuple[int,int],None] = None
         print('you have to "create_induced_point()" or "set_induced_point()" next.')
@@ -97,6 +96,19 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         self.nI = rI.size
         self.length_scale_sq: Callable[[float,float],float] = length_sq_fuction 
         return zI, rI
+        
+    def set_bound(self,r,z):
+        self.grid_input(r,z,isnt_print=True)
+        r_grid,z_grid=np.meshgrid(r,z,indexing='xy')
+        self.r_bound = r_grid[self.Is_bound]
+        self.z_bound = z_grid[self.Is_bound]
+        self.nb = self.z_bound.size
+
+        rbrb = np.meshgrid(self.r_bound,self.r_bound)
+        zbzb = np.meshgrid(self.z_bound,self.z_bound)
+        self.rb_tau2 = (rbrb[0]-rbrb[1])**2
+        self.zb_tau2 = (zbzb[0]-zbzb[1])**2
+        print('num of bound point is ',self.nb)
 
     def set_induced_point(self,
         zI: np.ndarray,
