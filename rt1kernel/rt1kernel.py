@@ -14,6 +14,7 @@ import itertools
 import scipy.sparse as sparse
 import pandas as pd
 import os
+from .plot_utils import *  
 
 __all__ = ['Kernel2D_scatter', 'Kernel2D_grid', 'Kernel1D']
 
@@ -97,6 +98,17 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         print('num of induced point is ',self.nI)
         return zI, rI
 
+    def grid_input(self, 
+        R: np.ndarray, 
+        Z: np.ndarray, 
+        fill_point: Tuple[float, float] = (0.5,0), 
+        fill_point_2nd: Optional[Tuple[float, float]] = None, 
+        isnt_print: bool = False
+        ) -> Tuple[np.ndarray, dict]:
+        mask,extent = self.__grid_input(R, Z, fill_point, fill_point_2nd, isnt_print)
+
+        return mask, {"origin":"lower","extent":extent}
+
     def set_bound_grid(self,r,z):
         self.grid_input(r,z,isnt_print=True)
         r_grid,z_grid=np.meshgrid(r,z,indexing='xy')
@@ -110,6 +122,41 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         self.zb_tau2 = (zbzb[0]-zbzb[1])**2
         print('num of bound point is ',self.nb)
     
+    def save_inducing_point(self,
+        name:str,
+        is_plot:bool=False,
+        figsize:tuple= (5,10)
+        ):
+        np.savez(file=name,rI=self.rI,z=self.zI)
+
+        if is_plot:
+            fig,ax = plt.subplots(1,2,figsize=figsize)
+            ax_kwargs = {'xlim'  :(0,1.1),
+                        'ylim'  :(-0.7,0.7), 
+                        'aspect': 'equal'
+                            }
+            ax[1].set(**ax_kwargs)
+            ax[0].set(**ax_kwargs)
+            self.append_frame(ax[0])
+            self.append_frame(ax[1])
+                        
+            r_plot = np.linspace(0.05,1.05,500)
+            z_plot = np.linspace(-0.7,0.7,500)
+            R,Z = np.meshgrid(r_plot,z_plot)
+            mask, im_kwargs = self.grid_input(R=r_plot, Z=z_plot)
+
+            LS = self.length_scale(R,Z)
+
+            imshow_cbar(fig,ax[1],LS*mask,extent=extent)
+
+            self.set_bound_space(delta_l=20e-3)
+                
+            ax[1].scatter(self.rI,self.zI)
+            if 'r_bound'  in dir(self):
+                ax[1].scatter(self.r_bound, self.z_bound)
+
+            fig.savefig(name+'.png')
+
     
     def set_bound_space(self,delta_l = 1e-2):
         """
@@ -226,6 +273,9 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             self.KzHDz1 = SEKer(x0=z_plot_HD,x1=z_plot, y0=0, y1=0, lx=dz, ly=1)
 
             self.Λ_z1r1_inv = 1 / np.einsum('i,j->ij',λ_z1,λ_r1)
+    
+    def __grid_input(self, R: np.ndarray, Z: np.ndarray, fill_point: Tuple[float, float] = ..., fill_point_2nd: Optional[Tuple[float, float]] = None, isnt_print: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+        return super().grid_input(R, Z, fill_point, fill_point_2nd, isnt_print)
 
 
 @jit
