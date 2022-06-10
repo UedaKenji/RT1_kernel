@@ -121,13 +121,14 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         self.rb_tau2 = (rbrb[0]-rbrb[1])**2
         self.zb_tau2 = (zbzb[0]-zbzb[1])**2
         print('num of bound point is ',self.nb)
+
     
     def save_inducing_point(self,
         name:str,
         is_plot:bool=False,
-        figsize:tuple= (5,10)
+        figsize:tuple= (10,5)
         ):
-        np.savez(file=name,rI=self.rI,z=self.zI)
+        np.savez(file=name,rI=self.rI,zI=self.zI)
 
         if is_plot:
             fig,ax = plt.subplots(1,2,figsize=figsize)
@@ -147,13 +148,22 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             LS = self.length_scale(R,Z)
 
-            imshow_cbar(fig,ax[1],LS*mask,extent=extent)
+            contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
 
             self.set_bound_space(delta_l=20e-3)
+
+            ax[0].set_title('Length scale distribution',size=15)
                 
-            ax[1].scatter(self.rI,self.zI)
+            ax[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
+            title = 'Inducing ponit: '+ str(self.nI)
             if 'r_bound'  in dir(self):
-                ax[1].scatter(self.r_bound, self.z_bound)
+                ax[1].scatter(self.r_bound, self.z_bound,s=1,label='boundary_point')
+                title += '\nBoundary ponit: '+ str(self.nb)
+
+            ax[1].set_title(title,size=15)
+            ax[1].legend(fontsize=12)
+
+
 
             fig.savefig(name+'.png')
 

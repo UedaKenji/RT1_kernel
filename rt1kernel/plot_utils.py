@@ -41,3 +41,14 @@ def imshow_cbar(f:plt.Figure, ax, im0, title:str=None,**kwargs):
     ax.set_title(title)
     ax.set_aspect('equal')
     f.colorbar(im,cax=cax)
+
+
+
+def contourf_cbar(f:plt.Figure, ax, im0, title:str=None,**kwargs):
+
+    divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)
+    cax = divider.append_axes('right', '5%', pad='3%')
+    im = ax.contourf(im0,**kwargs)
+    ax.set_title(title)
+    ax.set_aspect('equal')
+    f.colorbar(im,cax=cax)
