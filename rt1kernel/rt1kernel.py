@@ -14,7 +14,6 @@ import itertools
 import scipy.sparse as sparse
 import pandas as pd
 import os
-from rt1plotpy import frame
 
 __all__ = ['Kernel2D_scatter', 'Kernel2D_grid', 'Kernel1D']
 
@@ -95,9 +94,10 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         self.zI, self.rI = zI, rI
         self.nI = rI.size
         self.length_scale_sq: Callable[[float,float],float] = length_sq_fuction 
+        print('num of induced point is ',self.nI)
         return zI, rI
-        
-    def set_bound(self,r,z):
+
+    def set_bound_grid(self,r,z):
         self.grid_input(r,z,isnt_print=True)
         r_grid,z_grid=np.meshgrid(r,z,indexing='xy')
         self.r_bound = r_grid[self.Is_bound]
@@ -109,6 +109,60 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         self.rb_tau2 = (rbrb[0]-rbrb[1])**2
         self.zb_tau2 = (zbzb[0]-zbzb[1])**2
         print('num of bound point is ',self.nb)
+    
+    
+    def set_bound_space(self,delta_l = 1e-2):
+        """
+        create induced point with equal space 
+
+        Parameters
+        ----------
+        delta_l: space length [m] 
+
+        Reuturns
+        ----------
+        """
+
+        z_all, r_all = np.zeros(0),np.zeros(0)
+        for entity in self.all_lines:
+            r0,r1 = entity.start[0]/1000, entity.end[0]/1000 
+            z0,z1 = entity.start[1]/1000, entity.end[1]/1000
+            l = np.sqrt((z0-z1)**2 + (r0-r1)**2)
+            n = int(l/delta_l) + 1 
+            z = np.linspace(z0,z1,n)
+            r = np.linspace(r0,r1,n)
+            z_all = np.append(z_all,z)
+            r_all = np.append(r_all,r)  
+
+        for entity in self.all_arcs:
+            angle = entity.end_angle- entity.start_angle
+            angle = 360*( angle < 0 ) + angle 
+            radius = entity.radius/1000 
+            n = int(radius*angle/180*np.pi/delta_l) + 1
+            #print(n,angle)
+            theta = np.linspace(entity.start_angle,entity.start_angle+angle,n) / 180*np.pi
+            r = entity.center[0]/1000 + radius*np.cos(theta)
+            z = entity.center[1]/1000 + radius*np.sin(theta)
+            z_all = np.append(z_all,z)
+            r_all = np.append(r_all,r) 
+
+        # 重複する点を除外する
+        is_duplicate = np.zeros(z_all.size,dtype=np.bool8)
+        for i in range(r_all.size-1):
+            res = abs(z_all[i]-z_all[i+1:])+ abs(r_all[i]-r_all[i+1:])
+            is_duplicate[i] = np.any(res < delta_l/100)
+
+        r_all = r_all[~is_duplicate]
+        z_all = z_all[~is_duplicate]
+
+
+        self.r_bound = r_all
+        self.z_bound = z_all 
+        self.nb = self.z_bound.size
+
+        
+        print('num of bound point is ',self.nb)
+
 
     def set_induced_point(self,
         zI: np.ndarray,
