@@ -1,0 +1,3 @@
+[submodule "rt1raytrace"]
+	path = rt1raytrace
+	url = https://github.com/UedaKenji/rt1raytrace.git
