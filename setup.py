@@ -9,5 +9,5 @@ setup(
     url="https://github.com/UedaKenji/rt1_advanced_plot",
     install_requires=[],
     packages=setuptools.find_packages(),
-    python_requires=">=3.8",
+    python_requires=">=3.7", 
 )
