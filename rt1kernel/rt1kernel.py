@@ -1,3 +1,4 @@
+from pkgutil import extend_path
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy import FPE_DIVIDEBYZERO, array, linalg, ndarray
@@ -247,18 +248,19 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         r_plot   : np.ndarray,
         z_plot_HD: np.ndarray=[None],
         r_plot_HD: np.ndarray=[None],
-        scale    :int = 1
+        scale    : float = 1
         )  :
         
         if not 'rI'  in dir(self):
             print('set_induced_point() or create_induced_point() is to be done in advance')
             return
+        
         s = scale
         lI = self.length_scale(self.rI,self.zI)
         KII = GibbsKer(x0=self.rI, x1=self.rI, y0=self.zI, y1=self.zI, lx0=lI*s, lx1=lI*s, isotropy=True)
         self.KII_inv = np.linalg.inv(KII+1e-5*np.eye(self.nI))
         
-        self.mask1,self.extent1 = self.grid_input(r_plot,z_plot,isnt_print=True)
+        self.mask1,self.extent1 = self.grid_input(r_plot,z_plot,isnt_print=False)
 
         Z_plot,R_plot  = np.meshgrid(z_plot, r_plot, indexing='ij')
 
@@ -277,7 +279,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             λ_r1, self.Q_r1 = np.linalg.eigh(Kr1r1)
             λ_z1, self.Q_z1 = np.linalg.eigh(Kz1z1)
 
-            self.mask_HD,self.extent_HD = self.grid_input(r_plot_HD,z_plot_HD)
+            self.mask_HD,self.im_kwargs_HD = self.grid_input(r_plot_HD,z_plot_HD,isnt_print=False)
 
             self.KrHDr1 = SEKer(x0=r_plot_HD,x1=r_plot, y0=0, y1=0, lx=dr, ly=1)
             self.KzHDz1 = SEKer(x0=z_plot_HD,x1=z_plot, y0=0, y1=0, lx=dz, ly=1)
