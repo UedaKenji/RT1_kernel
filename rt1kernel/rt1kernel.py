@@ -129,7 +129,54 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         is_plot:bool=False,
         figsize:tuple= (10,5)
         ):
-        np.savez(file=name,rI=self.rI,zI=self.zI)
+        np.savez(file=name,
+                 rI=self.rI,
+                 zI=self.zI)
+
+        if is_plot:
+            fig,ax = plt.subplots(1,2,figsize=figsize)
+            ax_kwargs = {'xlim'  :(0,1.1),
+                        'ylim'  :(-0.7,0.7), 
+                        'aspect': 'equal'
+                            }
+            ax[1].set(**ax_kwargs)
+            ax[0].set(**ax_kwargs)
+            self.append_frame(ax[0])
+            self.append_frame(ax[1])
+                        
+            r_plot = np.linspace(0.05,1.05,500)
+            z_plot = np.linspace(-0.7,0.7,500)
+            R,Z = np.meshgrid(r_plot,z_plot)
+            mask, im_kwargs = self.grid_input(R=r_plot, Z=z_plot)
+
+            LS = self.length_scale(R,Z)
+
+            contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
+
+            self.set_bound_space(delta_l=20e-3)
+            ax[0].set_title('Length scale distribution',size=15)
+            ax[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
+                
+            title = 'Inducing ponit: '+ str(self.nI)
+
+            ax[1].set_title(title,size=15)
+            ax[1].legend(fontsize=12)
+
+            fig.suptitle(name)
+            fig.savefig(name+'.png')
+
+            
+    def save_point(self,
+        name:str,
+        is_plot:bool=False,
+        figsize:tuple= (10,5)
+        ):
+        np.savez(file=name,
+                 zI=self.zI,
+                 rI=self.rI,
+                 rb=self.r_bound,
+                 zb=self.z_bound)
+        print('inducing points: '+str(self.nI)+' and boundary points: '+str(self.nb)+' are correctly saved at '+name)
 
         if is_plot:
             fig,ax = plt.subplots(1,2,figsize=figsize)
@@ -164,8 +211,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             ax[1].set_title(title,size=15)
             ax[1].legend(fontsize=12)
 
-
-
+            fig.suptitle(name)
             fig.savefig(name+'.png')
 
     
@@ -221,6 +267,27 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         
         print('num of bound point is ',self.nb)
 
+    def load_point(self,
+        rI: np.ndarray,
+        zI: np.ndarray,
+        rb: np.ndarray,
+        zb: np.ndarray,
+        length_sq_fuction: Callable[[float,float],float],
+        ) :  
+        """
+        set induced point by input existing data
+
+        Parameters
+        ----------
+        zI: np.ndarray,
+        rI: np.ndarray,
+        length_sq_fuction: Callable[[float,float],None]
+        """
+        self.zI, self.rI = zI, rI
+        self.z_bound, self.r_bound = zb, rb
+        self.nI = rI.size
+        self.nb = rb.size
+        self.length_scale_sq: Callable[[float,float],float] = length_sq_fuction 
 
     def set_induced_point(self,
         zI: np.ndarray,
@@ -244,10 +311,10 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         return np.sqrt(self.length_scale_sq(r,z))
     
     def set_grid_interface(self,
-        z_plot   : np.ndarray,
-        r_plot   : np.ndarray,
-        z_plot_HD: np.ndarray=[None],
-        r_plot_HD: np.ndarray=[None],
+        z_medium   : np.ndarray,
+        r_medium   : np.ndarray,
+        z_plot: np.ndarray=[None],
+        r_plot: np.ndarray=[None],
         scale    : float = 1
         )  :
         
@@ -260,31 +327,42 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         KII = GibbsKer(x0=self.rI, x1=self.rI, y0=self.zI, y1=self.zI, lx0=lI*s, lx1=lI*s, isotropy=True)
         self.KII_inv = np.linalg.inv(KII+1e-5*np.eye(self.nI))
         
-        self.mask1,self.extent1 = self.grid_input(r_plot,z_plot,isnt_print=False)
+        self.mask_m,self.im_kwargs_m = self.grid_input(r_medium,z_medium,isnt_print=False)
 
-        Z_plot,R_plot  = np.meshgrid(z_plot, r_plot, indexing='ij')
+        Z_medium,R_medium  = np.meshgrid(z_medium, r_medium, indexing='ij')
 
-        lp = self.length_scale(R_plot.flatten(), Z_plot.flatten())
-        lp = np.nan_to_num(lp,nan=1)
-        self.Kps = GibbsKer(x0 = R_plot.flatten(),x1 = self.rI, y0 = Z_plot.flatten(), y1 =self.zI, lx0=lp*s, lx1=lI*s, isotropy=True)
+        lm = self.length_scale(R_medium.flatten(), Z_medium.flatten())
+        lm = np.nan_to_num(lm,nan=1)
+        self.Kps = GibbsKer(x0 = R_medium.flatten(),x1 = self.rI, y0 = Z_medium.flatten(), y1 =self.zI, lx0=lm*s, lx1=lI*s, isotropy=True)
         
-        if z_plot_HD[0] == None:
+        if z_plot[0] == None:
             return 
         else:
-            dr, dz = r_plot[1]-r_plot[0],   z_plot[1]-z_plot[0]
+            dr, dz = r_medium[1]-r_medium[0],   z_medium[1]-z_medium[0]
 
-            Kr1r1 = SEKer(x0=r_plot ,x1=r_plot, y0=0, y1=0, lx=dr, ly=1)
-            Kz1z1 = SEKer(x0=z_plot ,x1=z_plot, y0=0, y1=0, lx=dz, ly=1)
+            Kr1r1 = SEKer(x0=r_medium ,x1=r_medium, y0=0, y1=0, lx=dr, ly=1)
+            Kz1z1 = SEKer(x0=z_medium ,x1=z_medium, y0=0, y1=0, lx=dz, ly=1)
             
             λ_r1, self.Q_r1 = np.linalg.eigh(Kr1r1)
             λ_z1, self.Q_z1 = np.linalg.eigh(Kz1z1)
 
-            self.mask_HD,self.im_kwargs_HD = self.grid_input(r_plot_HD,z_plot_HD,isnt_print=False)
+            self.mask, self.im_kwargs = self.grid_input(r_plot,z_plot,isnt_print=False)
 
-            self.KrHDr1 = SEKer(x0=r_plot_HD,x1=r_plot, y0=0, y1=0, lx=dr, ly=1)
-            self.KzHDz1 = SEKer(x0=z_plot_HD,x1=z_plot, y0=0, y1=0, lx=dz, ly=1)
+            self.KrHDr1 = SEKer(x0=r_plot,x1=r_medium, y0=0, y1=0, lx=dr, ly=1)
+            self.KzHDz1 = SEKer(x0=z_plot,x1=z_medium, y0=0, y1=0, lx=dz, ly=1)
 
             self.Λ_z1r1_inv = 1 / np.einsum('i,j->ij',λ_z1,λ_r1)
+
+            
+    def convert_grid_media(self, fI:np.ndarray):
+        f1 = self.Kps @ ( self.KII_inv @ fI)
+        return f1.reshape(self.mask_m.shape), self.mask_m,self.im_kwargs_m
+
+    
+    def convert_grid(self, fI:np.ndarray) -> Tuple[np.ndarray,dict]:
+        f1, _,_,  = self.convert_grid_media(fI)
+        fHD = self.KzHDz1 @ (self.Q_z1 @ (self.Λ_z1r1_inv * (self.Q_z1.T @ f1 @ self.Q_r1)) @ self.Q_r1.T) @ self.KrHDr1.T
+        return fHD, self.mask, self.im_kwargs
     
     def __grid_input(self, R: np.ndarray, Z: np.ndarray, fill_point: Tuple[float, float] = ..., fill_point_2nd: Optional[Tuple[float, float]] = None, isnt_print: bool = False) -> Tuple[np.ndarray, np.ndarray]:
         return super().grid_input(R, Z, fill_point, fill_point_2nd, isnt_print)
