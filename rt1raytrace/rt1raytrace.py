@@ -95,8 +95,9 @@ class Raytrace(frame.Frame):
     def load_model(path:str): 
         return pd.read_pickle(path)
 
-    def save_model(self,path:str):
+    def save_model(self,name:str,path:str=''):
         N = len(self.rays)
+        class_name = type(self).__name__
 
         fig,ax = plt.subplots(1,N,figsize=(N*8,10))
         for i in range(N):
@@ -108,8 +109,8 @@ class Raytrace(frame.Frame):
                     +'location: '+str(self.location)+'\n'
                     +'rotation: '+str(self.rotation),fontsize=25)
         fig.tight_layout()
-        fig.savefig(path+'.png',tight_layout=True,facecolor="white") 
-        pd.to_pickle(self,path+'.pkl')
+        fig.savefig(path+class_name+'_'+name+'.png',tight_layout=True,facecolor="white") 
+        pd.to_pickle(self,path+class_name+'_'+name+'.pkl')
 
     def __init__(self,
         dxf_file  :str,
@@ -333,12 +334,25 @@ class Raytrace(frame.Frame):
 
         return Ve_theta1, Ho_theta1, N_dot_P 
 
-    def show_ray(self,
+    def show_rays(self,
 
         ):
-        
-        pass 
+        '''
+        失敗した例のみ表示
+        '''
+        fig,ax = plt.subplots(figsize=(20,20))
 
+        hoge = self.rays[-1].ref_type==-1
+        N = len(self.rays)
+        self.append_frame(ax)
+        ax.set(**rt1_ax_kwargs)
+        for n in range(N):
+            R,Z=self.rays[n].RZ_ray(Lnum=50)
+            R = R[:,hoge]
+            Z = Z[:,hoge]
+            for i in range(R.shape[1]):
+                ax.plot(R[:,i],Z[:,i],color=cycle(int(i%10)))
+        
 
         
     
