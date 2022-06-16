@@ -16,7 +16,10 @@ from scipy import misc, ndimage, optimize, signal
 from scipy import special
 
 
-__all__ = ['imshow_cbar','contourf_cbar']
+__all__ = ['imshow_cbar',
+           'contourf_cbar',
+           'rt1_ax_kwargs',
+           'cycle']
 
 
 params = {
@@ -35,6 +38,12 @@ params = {
         
 plt.rcParams.update(**params)
 
+rt1_ax_kwargs = {'xlim'  :(0,1.1),
+                 'ylim'  :(-0.7,0.7), 
+                 'aspect': 'equal'
+                }
+
+cycle = plt.get_cmap("tab10") 
 
 def imshow_cbar(f:plt.Figure, ax, im0, title:str=None,**kwargs):
 
