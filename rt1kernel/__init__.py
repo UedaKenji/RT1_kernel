@@ -1,2 +1,4 @@
+import sys,os 
 from .rt1kernel import *
-from .plot_utils import imshow_cbar
+from . import plot_utils
+#sys.path.insert(0, os.path.abspath(os.curdir)+'\\rt1raytrace')

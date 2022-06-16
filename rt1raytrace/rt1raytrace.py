@@ -15,9 +15,9 @@ import scipy.sparse as sparse
 import pandas as pd
 import os
 
-from rt1raytrace.plot_utils import *
+from  .plot_utils import *
 
-__all__ = ['Raytrace']
+__all__ = ['Raytrace','Ray']
 
 
 @dataclass

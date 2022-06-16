@@ -14,11 +14,169 @@ from dataclasses import dataclass
 import itertools
 import scipy.sparse as sparse
 import pandas as pd
-import os
+import os,sys
 from .plot_utils import *  
+
+sys.path.insert(0,os.pardir)
+import rt1raytrace
 
 __all__ = ['Kernel2D_scatter', 'Kernel2D_grid', 'Kernel1D']
 
+@dataclass
+class Observation_Matrix:
+    H  : Union[np.ndarray,sparse.csr_matrix]
+    ray: rt1raytrace.Ray
+    
+    def __post_init__(self):
+        shape = self.H.shape
+        self.H :sparse.csr_matrix = sparse.csr_matrix(self.H.reshape(shape[0]*shape[1],shape[2]))
+        self.shape :tuple = shape
+
+    def projection(self,
+        f :np.ndarray,
+        reshape:bool=True
+        ) -> np.ndarray: 
+
+        g: np.ndarray = self.H @ f
+
+        if reshape:
+            return g.reshape(self.shape[0:2])
+        else:
+            return g
+
+    def toarray(self):
+        return self.H.toarray()
+
+    def set_mask(self,mask:np.ndarray):
+        if np.all(mask == True):
+            return self.H
+        H_d = self.toarray()
+        H_d_masked = H_d[mask.flatten(),:]
+        return sparse.csr_matrix(H_d_masked)
+
+
+def cal_refractive_indices_metal2(
+    cos_i: Union[np.ndarray,float], 
+    n_R  : float = 1.7689, #for 400nm
+    n_I  : float = 0.60521 #for 400nm
+    ) -> Union[np.ndarray,float]:
+    """""
+    金属の反射率を計算する．
+    :param cos_i: cos θ 
+    :param n_R: 屈折率の実数部
+    :param n_I: 屈折率の虚数部（消光係数）
+    :return: s偏光の反射率（絶対値），p偏光の反射率（絶対値）
+    """""
+    sin_i = np.sqrt(1-cos_i**2)
+
+    r_TE = (cos_i - np.sqrt((n_R**2 - n_I**2 - sin_i**2) + 2j*n_I*n_R))\
+          /(cos_i + np.sqrt((n_R**2 - n_I**2 - sin_i**2) + 2j*n_I*n_R))
+    r_TM = (-(n_R**2 - n_I**2 + 2j*n_R*n_I)*cos_i + np.sqrt((n_R**2 - n_I**2 - sin_i**2) + 2j*n_I*n_R))\
+          /((n_R**2 - n_I**2 + 2j*n_R*n_I) *cos_i + np.sqrt((n_R**2 - n_I**2 - sin_i**2) + 2j*n_I*n_R))
+    return (np.abs(r_TE)**2+ np.abs(r_TM)**2)/2
+    
+class Observation_Matrix_integral:
+
+    indices = {'400nm':(1.7689 ,0.60521),
+               '700nm':(0.70249,0.36890)}
+
+    def load_model(path:str): 
+        return pd.read_pickle(path)
+
+    def save_model(self,path:str):
+        self.path = path+'.pkl'
+        self.abspath = os.path.abspath(self.path) 
+        
+        try:
+            self.Hs_mask
+            del self.Hs_mask
+        except:
+            pass 
+        
+        try:
+            self.H_sum
+            del self.H_sum
+        except:
+            pass 
+
+        
+        pd.to_pickle(self,path+'.pkl')
+        
+
+    def __init__(self,
+        H_list: List[Observation_Matrix],
+        ray0  : rt1raytrace.Ray,
+        rI    : np.ndarray,
+        zI    : np.ndarray) -> None:
+        self.shape :tuple = H_list[0].shape 
+        self.n  = len(H_list)
+        self.mask = np.ones(self.shape[0:2],dtype=np.bool8)
+        self.refs = [1.]*self.n
+        self.ray_init = ray0
+        self.Hs = H_list
+        self.rI = rI 
+        self.zI = zI 
+        #self.is_mask = False
+        pass
+
+    def set_mask(self,
+        mask : Optional[np.ndarray] = None 
+        ) -> None :
+        #self.is_mask = True
+        if not mask is None:
+            self.mask = mask 
+        
+        self.Hs_mask: List[sparse.csr_matrix]  = [] 
+        for H in self.Hs:
+            self.Hs_mask.append(H.set_mask(self.mask))
+
+    def set_uniform_ref(self,wave:str):
+        n_R, n_I = self.indices[wave]
+        for i in range(1,self.n):
+            self.refs[i] = cal_refractive_indices_metal2(self.Hs[i].ray.cos_factor,n_R,n_I)
+
+    def set_fn_ref(self,fn: Callable[[np.ndarray,np.ndarray],Tuple[np.ndarray,np.ndarray]]):
+        for i in range(1,self.n):
+            Phi_ref = self.Hs[i].ray.Phi0
+            Z_ref = self.Hs[i].ray.Z0
+            n_R,n_I = fn(Z_ref,Phi_ref)
+            self.refs[i] = cal_refractive_indices_metal2(self.Hs[i].ray.cos_factor,n_R,n_I)
+        pass
+    
+    def set_Hsum(self,
+        mask: Optional[np.ndarray] = None 
+        ) -> None :
+
+        self.H_sum :sparse.csr_matrix = 0.
+
+        if not mask is None:
+            self.set_mask(mask)
+        
+        for i,H in enumerate(self.Hs_mask):
+            ref = np.ones(H.shape[0])
+            for j in range(i+1):
+                ref_j = self.refs[j] * np.ones(self.shape[0:2])
+                ref   = ref_j[self.mask] *ref
+                
+            ref = sparse.diags(ref)
+            self.H_sum += ref @ H
+
+    def projection(self,
+        f :np.ndarray,
+        reshape:bool=True
+        ) -> np.ndarray: 
+
+        if reshape:
+            g = np.zeros(self.mask.shape)
+            g[self.mask] = self.H_sum @ f
+            return g
+        else:        
+            g = self.H_sum @ f
+            return g
+
+
+    def __call__(self):
+        return self.H_sum
 class Kernel2D_scatter(rt1plotpy.frame.Frame):
     def __init__(self,
         dxf_file  :str,
@@ -401,6 +559,41 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
     
     def __grid_input(self, R: np.ndarray, Z: np.ndarray, fill_point: Tuple[float, float] = ..., fill_point_2nd: Optional[Tuple[float, float]] = None, isnt_print: bool = False) -> Tuple[np.ndarray, np.ndarray]:
         return super().grid_input(R, Z, fill_point, fill_point_2nd, isnt_print)
+
+        
+    def create_observation_matrix(self,
+        ray  : rt1raytrace.Ray,
+        Lnum : int=100
+        ) -> np.ndarray:
+        self.im_shape = ray.shape
+
+        H = np.zeros((ray.shape[0], ray.shape[1], self.rI.size))
+
+        Rray, Zray = ray.RZ_ray(Lnum=Lnum+1)
+        dL = ray.Length / float(Lnum)
+        
+        Zray =0.5*(Zray[1:,:,:] + Zray[:-1,:,:])
+        Rray =0.5*(Rray[1:,:,:] + Rray[:-1,:,:])
+
+        lI = self.length_scale_sq(self.rI, self.zI)
+
+        for i  in tqdm(range(ray.shape[0])):
+            for j in range(ray.shape[1]):
+
+                R    = Rray[:,i,j]
+                Z    = Zray[:,i,j]
+                dL2  = dL[i,j]
+                l_ray = np.sqrt(self.length_scale_sq(R,Z))
+                Krs =  GibbsKer(x0=R, x1=self.rI, y0=Z, y1=self.zI, lx0=l_ray*0.5, lx1=lI*0.5,isotropy=True)
+
+
+                Krs_sum_inv   = 1/Krs.sum(axis=1)
+
+                H[i,j,:] = np.einsum('i,ij->j', dL2*Krs_sum_inv, Krs ) 
+        
+        H[H < 1e-5] = 0
+
+        return Observation_Matrix(H=H, ray=ray)
 
 
 @jit
