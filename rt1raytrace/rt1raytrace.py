@@ -92,10 +92,18 @@ class Ray:
 
 
 class Raytrace(frame.Frame):
-    def load_model(path:str): 
-        return pd.read_pickle(path)
+    def load_model(
+        path:str, 
+        is_plot:bool=False
+        ) :
+        model:Raytrace = pd.read_pickle(path) 
+        if is_plot: model.show_ims()
+        return model
 
-    def save_model(self,name:str,path:str=''):
+    def save_model(self,
+        name:str,
+        path:str=''
+        ):
         N = len(self.rays)
         class_name = type(self).__name__
 
@@ -354,6 +362,23 @@ class Raytrace(frame.Frame):
                 ax.plot(R[:,i],Z[:,i],color=cycle(int(i%10)))
         
 
+
+    def show_ims(self,
+
+        ):
+        '''
+        失敗した例のみ表示
+        '''
+        N = len(self.rays)
+        fig,ax = plt.subplots(1,N,figsize=(N*8,7))
+        for i in range(N):
+            imshow_cbar(fig,ax[i],self.rays[i].Length,origin='lower',cmap='turbo')
+
+        fig.suptitle('flocal length: '+str(self.focal_length)+', '
+                    +'image_size: '+str(self.image_size)+', '
+                    +'center_angles: '+str(self.center_angles)+', '
+                    +'location: '+str(self.location)+', '
+                    +'rotation: '+str(self.rotation),fontsize=25)
         
     
     def raytrace(self,

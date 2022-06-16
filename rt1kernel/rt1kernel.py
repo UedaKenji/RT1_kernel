@@ -214,6 +214,62 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             fig.suptitle(name)
             fig.savefig(name+'.png')
 
+    def load_point(self,
+        rI: np.ndarray,
+        zI: np.ndarray,
+        rb: np.ndarray,
+        zb: np.ndarray,
+        length_sq_fuction: Callable[[float,float],float],
+        is_plot: bool = False,
+        ) :  
+        """
+        set induced point by input existing data
+
+        Parameters
+        ----------
+        zI: np.ndarray,
+        rI: np.ndarray,
+        length_sq_fuction: Callable[[float,float],None]
+        """
+        self.zI, self.rI = zI, rI
+        self.z_bound, self.r_bound = zb, rb
+        self.nI = rI.size
+        self.nb = rb.size
+        self.length_scale_sq: Callable[[float,float],float] = length_sq_fuction 
+        if is_plot:
+            fig,ax = plt.subplots(1,2,figsize=(10,5))
+            ax_kwargs = {'xlim'  :(0,1.1),
+                        'ylim'  :(-0.7,0.7), 
+                        'aspect': 'equal'
+                            }
+            ax[1].set(**ax_kwargs)
+            ax[0].set(**ax_kwargs)
+            self.append_frame(ax[0])
+            self.append_frame(ax[1])
+                        
+            r_plot = np.linspace(0.05,1.05,500)
+            z_plot = np.linspace(-0.7,0.7,500)
+            R,Z = np.meshgrid(r_plot,z_plot)
+            mask, im_kwargs = self.grid_input(R=r_plot, Z=z_plot)
+
+            LS = self.length_scale(R,Z)
+
+            contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
+
+            self.set_bound_space(delta_l=20e-3)
+
+            ax[0].set_title('Length scale distribution',size=15)
+                
+            ax[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
+            title = 'Inducing ponit: '+ str(self.nI)
+            if 'r_bound'  in dir(self):
+                ax[1].scatter(self.r_bound, self.z_bound,s=1,label='boundary_point')
+                title += '\nBoundary ponit: '+ str(self.nb)
+
+            ax[1].set_title(title,size=15)
+            ax[1].legend(fontsize=12)
+
+
     
     def set_bound_space(self,delta_l = 1e-2):
         """
@@ -267,27 +323,6 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         
         print('num of bound point is ',self.nb)
 
-    def load_point(self,
-        rI: np.ndarray,
-        zI: np.ndarray,
-        rb: np.ndarray,
-        zb: np.ndarray,
-        length_sq_fuction: Callable[[float,float],float],
-        ) :  
-        """
-        set induced point by input existing data
-
-        Parameters
-        ----------
-        zI: np.ndarray,
-        rI: np.ndarray,
-        length_sq_fuction: Callable[[float,float],None]
-        """
-        self.zI, self.rI = zI, rI
-        self.z_bound, self.r_bound = zb, rb
-        self.nI = rI.size
-        self.nb = rb.size
-        self.length_scale_sq: Callable[[float,float],float] = length_sq_fuction 
 
     def set_induced_point(self,
         zI: np.ndarray,
