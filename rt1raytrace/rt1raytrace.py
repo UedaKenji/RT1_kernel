@@ -15,6 +15,8 @@ import scipy.sparse as sparse
 import pandas as pd
 import os
 
+from rt1raytrace.plot_utils import *
+
 __all__ = ['Raytrace']
 
 
@@ -48,7 +50,7 @@ class Ray:
     def ZΦRL_ray(self,
         Lmax: Union[np.ndarray,float,None] = None,
         Lnum: int=1,
-        zero_offset: float = 0., 
+        Lmin: float = 0., 
         ) ->  Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
 
         if Lmax is None:
@@ -57,7 +59,7 @@ class Ray:
         if Lnum == 1:
             L = Lmax*np.ones(self.shape)
         else:
-            L = np.linspace(zero_offset,Lmax*np.ones(self.shape), Lnum)
+            L = np.linspace(Lmin,Lmax*np.ones(self.shape), Lnum)
         
         CosVe, SinVe = np.cos(self.Ve_theta0)     , np.sin(self.Ve_theta0)
         CosHo, SinHo = np.cos(self.Ho_theta0-self.Phi0), np.sin(self.Ho_theta0-self.Phi0)
@@ -72,18 +74,18 @@ class Ray:
     def RZ_ray(self,
         Lnum: int=1,
         Lmax: Union[np.ndarray,float,None] = None,
-        zero_offset: float = 0., 
+        Lmin: float = 0., 
         ) ->  Tuple[np.ndarray, np.ndarray]:
-        R,_,Z,_ = self.ZΦRL_ray(Lmax=Lmax,Lnum=Lnum,zero_offset=zero_offset)
+        R,_,Z,_ = self.ZΦRL_ray(Lmax=Lmax,Lnum=Lnum,Lmin=Lmin)
         return R,Z
 
         
     def XYZ_ray(self,
         Lnum: int=1,
         Lmax: Union[np.ndarray,float,None] = None,
-        zero_offset: float = 0., 
+        Lmin: float = 0., 
         ) ->  Tuple[np.ndarray, np.ndarray]:
-        R,Phi,Z,_ = self.ZΦRL_ray(Lmax=Lmax,Lnum=Lnum,zero_offset=zero_offset)
+        R,Phi,Z,_ = self.ZΦRL_ray(Lmax=Lmax,Lnum=Lnum,Lmin=Lmin)
         X = R*np.cos(Phi)
         Y = R*np.sin(Phi)
         return X,Y,Z
@@ -98,7 +100,7 @@ class Raytrace(frame.Frame):
 
         fig,ax = plt.subplots(1,N,figsize=(N*8,10))
         for i in range(N):
-            ax[i].imshow(self.rays[i].Length,origin='lower',cmap='turbo',vmin=0,vmax=2.2)
+            imshow_cbar(fig,ax[i],self.rays[i].Length,origin='lower',cmap='turbo')
 
         fig.suptitle('flocal length: '+str(self.focal_length)+'\n'
                     +'image_size: '+str(self.image_size)+'\n'
@@ -268,7 +270,7 @@ class Raytrace(frame.Frame):
         self.rays :list[Ray] = []
         self.rays.append(self.ray_1st)
         self.print_raytrace(1)
-        self.raytrace(self.rays[0], Lmax=Lmax, Lnum=Lnum[0], ignore_1st_intersection=False)
+        self.raytrace2(self.rays[0], Lmax=Lmax, Lnum=Lnum[0], ignore_1st_intersection=False)
         
         for i in range(1,N):
             self.print_raytrace(i+1)
@@ -287,7 +289,7 @@ class Raytrace(frame.Frame):
                        cos_factor= cos_factor)
             self.rays.append(ray)
 
-            self.raytrace(self.rays[i], Lmax, Lnum=Lnum[i], ignore_1st_intersection=False)
+            self.raytrace2(self.rays[i], Lmax, Lnum=Lnum[i], ignore_1st_intersection=False)
 
 
     def print_raytrace(self,N:int=1):
@@ -331,6 +333,13 @@ class Raytrace(frame.Frame):
 
         return Ve_theta1, Ho_theta1, N_dot_P 
 
+    def show_ray(self,
+
+        ):
+        
+        pass 
+
+
         
     
     def raytrace(self,
@@ -342,7 +351,7 @@ class Raytrace(frame.Frame):
         
 
         self.n_ve, self.n_ho = self.im_shape[0], self.im_shape[1]
-        R_ray, _ , Z_ray, LL = ray.ZΦRL_ray(Lnum=Lnum, Lmax=Lmax,zero_offset=1e-3)
+        R_ray, _ , Z_ray, LL = ray.ZΦRL_ray(Lnum=Lnum, Lmax=Lmax,Lmin=1e-3)
         time.sleep(0.2)
         #Time =  ElapsedTime()
         
@@ -538,6 +547,7 @@ class Raytrace(frame.Frame):
             time.sleep(0.2)
             print('!WARNING!, there are rays without intersection.')
             time.sleep(0.2)
+
         
         ####----------------- strictly calc ------------------------####
 
@@ -577,6 +587,9 @@ class Raytrace(frame.Frame):
         frame_num  = self.intersect_info['frame_num']
 
         frame_num[no_interception] = -1
+
+        self.L_1st = L_1st
+        self.L_2nd = L_2nd
 
         del self.intersect_info
 
@@ -655,6 +668,271 @@ class Raytrace(frame.Frame):
         return #R_sol, phi_sol, Z_sol, L_sol, frame_type, frame_num
 
 
+
+    def raytrace2(self,
+        ray: Ray,
+        Lmax:     Union[np.ndarray,float] = 3.0,
+        Lnum:     int=500,
+        ignore_1st_intersection:bool = False,
+        ):
+        
+
+        self.n_ve, self.n_ho = self.im_shape[0], self.im_shape[1]
+
+        Lmax,Lmin = Lmax,1e-3
+        L_sol  = 0
+
+        for i in range(3):
+            R_ray, _ , Z_ray, LL = ray.ZΦRL_ray(Lnum=Lnum, Lmax=Lmax,Lmin=Lmin)
+            time.sleep(0.2)
+            #Time =  ElapsedTime()
+            
+            R_dray_sta = R_ray[:-1,:,:]
+            R_dray_end = R_ray[1:,:,:]
+            Z_dray_sta = Z_ray[:-1,:,:]
+            Z_dray_end = Z_ray[1:,:,:]
+            del Z_ray, R_ray
+
+            line_index_list =[]
+            line_Rsol_list =[]
+            line_Zsol_list =[]
+            arc_index_list =[]
+            arc_Rsol_list =[]
+            arc_Zsol_list =[]
+        
+            R1, Z1 = R_dray_sta, Z_dray_sta
+            R2, Z2 = R_dray_end, Z_dray_end
+            # 交点が存在するかの判定(直線)#############
+            for i in tqdm(range(len(self.all_lines)), desc='calculating Lines'):
+                R4, Z4 = self.all_lines[i].start[0]/1000, self.all_lines[i].start[1]/1000
+                R3, Z3 = self.all_lines[i].end[0]/1000, self.all_lines[i].end[1]/1000
+            
+                D = (R4-R3) * (Z2-Z1) - (R2-R1) * (Z4-Z3)
+                W1, W2 = Z3*R4-Z4*R3, Z1*R2 - Z2*R1
+            
+                R_inter = ( (R2-R1) * W1 - (R4-R3) * W2 ) / D
+                Z_inter = ( (Z2-Z1) * W1 - (Z4-Z3) * W2 ) / D
+                del W1,W2,D
+                
+                is_in_Rray_range = (R2 - R_inter) * (R1 - R_inter) < 0 
+                is_in_Zray_range = (Z2 - Z_inter) * (Z1 - Z_inter) < 0 
+                is_in_Rfra_range = (R4 - R_inter) * (R3 - R_inter) < 0 
+                is_in_Zfra_range = (Z4 - Z_inter) * (Z3 - Z_inter) < 0 
+                is_in_range = np.logical_or(is_in_Rfra_range,is_in_Zfra_range) * np.logical_or(is_in_Rray_range,is_in_Zray_range) 
+                # 水平や垂直  な線に対応するため
+                index = np.nonzero(is_in_range)
+                line_index_list.append(index)
+                line_Rsol_list.append(R_inter[index])
+                line_Zsol_list.append(Z_inter[index])
+                #Time.printtime('Line:'+str(i+1)+'/'+str(len(self.all_lines)))
+
+                del R_inter,Z_inter
+
+            lR = R2-R1
+            lZ = Z2-Z1
+            S  = R2*Z1 - R1*Z2        
+            # 交点が存在するかの判定(弧) #############
+            for i in tqdm(range(len(self.all_arcs)), desc='calculating Arcs '):
+                Rc, Zc =(self.all_arcs[i].center[0]/1000, self.all_arcs[i].center[1]/1000)
+                radius = self.all_arcs[i].radius/1000
+                sta_angle, end_angle = self.all_arcs[i].start_angle ,self.all_arcs[i].end_angle 
+
+                D = (lR**2+lZ**2)*radius**2 + 2*lR*lZ*Rc*Zc - 2*(lZ*Rc-lR*Zc)*S - lR**2 *Zc**2 -lZ**2*Rc**2-S**2 #判別式
+                exist = D > 0
+                index = np.nonzero(D > 0 ) # 判別式が正、すなわち交点が存在する条件のインデックス
+
+                #lR_i  = lR[index]
+                #lZ_i  = lZ[index]
+                #S_i   = S[index]
+                #D_i   = D[index]
+                Ri1 = (lR**2 *Rc + lR*lZ *Zc - lZ *S + lR * np.sqrt(D*exist) ) / (lR**2 + lZ**2)  * exist# １つ目の交点のR座標
+                Zi1 = (lZ**2 *Zc + lR*lZ *Rc + lR *S + lZ * np.sqrt(D*exist) ) / (lR**2 + lZ**2)  * exist# １つ目の交点のZ座標
+                Ri2 = (lR**2 *Rc + lR*lZ *Zc - lZ *S - lR * np.sqrt(D*exist) ) / (lR**2 + lZ**2)  * exist# 2つ目の交点のR座標
+                Zi2 = (lZ**2 *Zc + lR*lZ *Rc + lR *S - lZ * np.sqrt(D*exist) ) / (lR**2 + lZ**2)  * exist# 2つ目の交点のZ座標
+                del D, exist
+
+                is_in_ray_range1  = np.logical_and((R2 - Ri1) * (R1 - Ri1) < 0 ,(Z2 - Zi1) * (Z1- Zi1) < 0) # 交点1が線分内にあるか判定
+                is_in_ray_range2  = np.logical_and((R2 - Ri2) * (R1 - Ri2) < 0 ,(Z2 - Zi2) * (Z1- Zi2) < 0) # 交点2が線分内にあるか判定
+
+                cos1 = (Ri1-Rc) / radius
+                sin1 = (Zi1-Zc) / radius
+                atan = np.arctan2(sin1,cos1)
+                theta1 = np.where(atan > 0, 180/np.pi*atan, 360+180/np.pi*atan)
+                cos2 = (Ri2-Rc) / radius    
+                sin2 = (Zi2-Zc) / radius 
+                atan = np.arctan2(sin2,cos2)
+                theta2 = np.where(atan > 0, 180/np.pi*atan, 360+180/np.pi*atan)
+
+                del cos1,sin1,atan,cos2,sin2
+
+                is_in_arc1 =  (end_angle - theta1) * (sta_angle - theta1) * (end_angle-sta_angle) <= 0 # 交点1が弧の範囲内あるか判定
+                is_in_arc2 =  (end_angle - theta2) * (sta_angle - theta2) * (end_angle-sta_angle) <= 0 # 交点1が弧の範囲内あるか判定
+
+                is_real_intercept1 = is_in_ray_range1 * is_in_arc1
+                is_real_intercept2 = is_in_ray_range2 * is_in_arc2
+                is_real_intercept  = is_real_intercept1 + is_real_intercept2
+
+                Rsol = Ri1 * is_real_intercept1 + Ri2 * is_real_intercept2
+                del Ri1,Ri2
+                Zsol = Zi1 * is_real_intercept1 + Zi2 * is_real_intercept2
+                del Zi1,Zi2
+
+
+                index = np.nonzero(is_real_intercept)
+                arc_index_list.append(index)
+                arc_Rsol_list.append(Rsol[index])
+                arc_Zsol_list.append(Zsol[index])
+                del Rsol,Zsol
+            
+            # 一番初めに交わる交点とその種類を整理する #############
+            self.intersect_info = {}
+            self.intersect_info['frame_type'] =  -1*np.ones(self.im_shape,dtype='int8')
+            self.intersect_info['frame_num']  =  -1*np.ones(self.im_shape,dtype='int8')
+            self.intersect_info['frame_type2'] = -1*np.ones(self.im_shape,dtype='int8')
+            self.intersect_info['frame_num2']  = -1*np.ones(self.im_shape,dtype='int8')
+            self.intersect_info['index_1st']   =-1*np.ones(self.im_shape,dtype='int16')
+            self.intersect_info['index_2nd']   =-1*np.ones(self.im_shape,dtype='int16')
+            self.intersect_info['R_1st']       =   np.zeros(self.im_shape)
+            self.intersect_info['Z_1st']      =   np.zeros(self.im_shape)
+            self.intersect_info['R_2nd']      =   np.zeros(self.im_shape)
+            self.intersect_info['Z_2nd']      =   np.zeros(self.im_shape)
+
+            # 一番はじめに通過する壁の番号を判定している
+            """
+            i_size = 0
+            i_mainline = -1
+            for i in range(len(self.all_lines)):
+                if len(line_Rsol_list[i]) > i_size:
+                    i_size = len(line_Rsol_list[i])
+                    i_mainline = i 
+                    
+            print(i_mainline)
+            """
+
+            self.test = line_index_list
+
+
+            for i in range(len(self.all_arcs)):
+                for j in range(arc_index_list[i][0].size):
+                    Li   = int(arc_index_list[i][0][j])
+                    vi    = int(arc_index_list[i][1][j])
+                    hi    = int(arc_index_list[i][2][j])
+                    target_Li_1st = self.intersect_info['index_1st'][vi,hi]
+                    target_Li_2nd = self.intersect_info['index_2nd'][vi,hi]
+                    if (Li < target_Li_1st or target_Li_1st == -1):
+                        self.intersect_info['frame_type2'][vi,hi] = self.intersect_info['frame_type'][vi,hi] 
+                        self.intersect_info['frame_num2'][vi,hi]  = self.intersect_info['frame_num'][vi,hi]
+                        self.intersect_info['index_2nd'][vi,hi]   = self.intersect_info['index_1st'][vi,hi] 
+
+                        self.intersect_info['frame_type'][vi,hi] = 1  # 0 means 'line'
+                        self.intersect_info['frame_num'][vi,hi] = i  # 0 means 'line'
+                        self.intersect_info['index_1st'][vi,hi] = Li  
+                    elif (Li < target_Li_2nd or target_Li_2nd == -1):
+                        self.intersect_info['frame_type2'][vi,hi] = 1  # 0 means 'line'
+                        self.intersect_info['frame_num2'][vi,hi] = i  # 0 means 'line'
+                        self.intersect_info['index_2nd'][vi,hi] = Li  
+
+
+            for i in range(len(self.all_lines)):
+                for j in range(line_index_list[i][0].size):
+                    Li = int(line_index_list[i][0][j])
+                    vi    = int(line_index_list[i][1][j])
+                    hi    = int(line_index_list[i][2][j])
+                    target_Li_1st = self.intersect_info['index_1st'][vi,hi]
+                    target_Li_2nd = self.intersect_info['index_2nd'][vi,hi]
+                    if (Li < target_Li_1st or target_Li_1st == -1):
+                        
+                        self.intersect_info['frame_type2'][vi,hi] = self.intersect_info['frame_type'][vi,hi] 
+                        self.intersect_info['frame_num2'][vi,hi]  = self.intersect_info['frame_num'][vi,hi]
+                        self.intersect_info['index_2nd'][vi,hi]   = self.intersect_info['index_1st'][vi,hi] 
+
+                        self.intersect_info['frame_type'][vi,hi] = 0  # 0 means 'line'
+                        self.intersect_info['frame_num'][vi,hi] = i  # 0 means 'line'
+                        self.intersect_info['index_1st'][vi,hi] = Li  
+                        
+                    elif ( Li < target_Li_2nd or target_Li_2nd == -1):
+                        self.intersect_info['frame_type2'][vi,hi] = 0  # 0 means 'line'
+                        self.intersect_info['frame_num2'][vi,hi] = i  # 0 means 'line'
+                        self.intersect_info['index_2nd'][vi,hi] = Li  
+    
+            for i in range(self.im_shape[0]):
+                for j in range(self.n_ho):
+                    first_index = self.intersect_info['index_1st'][i,j]
+                    secod_index = self.intersect_info['index_2nd'][i,j]
+                    self.intersect_info['R_1st'][i,j] = R_dray_sta[first_index,i,j]
+                    self.intersect_info['Z_1st'][i,j] = Z_dray_sta[first_index,i,j]
+                    self.intersect_info['R_2nd'][i,j] = R_dray_sta[secod_index,i,j]
+                    self.intersect_info['Z_2nd'][i,j] = Z_dray_sta[secod_index,i,j]
+            
+            del R_dray_end,R_dray_sta,Z_dray_sta,Z_dray_end
+
+            if ignore_1st_intersection:
+                self.intersect_info['R_1st']      =   self.intersect_info['R_2nd']
+                self.intersect_info['Z_1st']      =   self.intersect_info['Z_2nd']
+                self.intersect_info['frame_type'] =   self.intersect_info['frame_type2']
+                self.intersect_info['frame_num']  =   self.intersect_info['frame_num2']
+                self.intersect_info['index_1st']  =   self.intersect_info['index_2nd']
+
+            no_interception =  self.intersect_info['index_1st']== -1
+
+            if no_interception.any() :
+                time.sleep(0.2)
+                print('!WARNING!, there are rays without intersection.')
+                time.sleep(0.2)
+                #self.intersect_info['frame_type'] = self.frame_type_bk
+                #self.intersect_info['frame_num']  = self.frame_num_bk
+                #self.intersect_info['index_1st']  = self.index_1st_bk
+
+
+            
+           
+            L_1st, L_2nd = np.zeros(self.im_shape), np.zeros(self.im_shape)
+
+            for i in range(self.im_shape[0]):
+                for j in range(self.im_shape[1]):
+                    index = self.intersect_info['index_1st'][i,j]
+                    L_1st[i,j] = LL[ index ,i,j]
+                    L_2nd[i,j] = LL[ index+1,i,j]
+
+            frame_type = self.intersect_info['frame_type']
+            frame_num  = self.intersect_info['frame_num']
+
+
+            Lmin = L_1st
+            Lmax = L_2nd
+            '''
+            fig,ax = plt.subplots(figsize=(20,20))
+            rt1_ax_kwargs = {'xlim'  :(0,1.1),
+                            'ylim'  :(-0.7,0.7), 
+                            'aspect': 'equal'
+                            }
+            self.append_frame(ax)
+            ax.set(**rt1_ax_kwargs)
+            R_1st,Z_1st = ray.RZ_ray(Lmax=L_1st)
+            R_2nd,Z_2nd = ray.RZ_ray(Lmax=L_2nd)
+
+            ax.scatter(R_1st.flatten(),Z_1st.flatten(),s=1)
+            ax.scatter(R_2nd.flatten(),Z_2nd.flatten(),s=1)
+            plt.show()
+            '''
+            L_sol_bk = L_sol 
+            
+            L_sol = (Lmin+Lmax) /2
+            #self.frame_type_bk = self.intersect_info['frame_type']
+            #self.frame_num_bk  = self.intersect_info['frame_num']  
+            #self.index_1st_bk  = self.intersect_info['index_1st']  
+
+     
+            print((L_sol_bk-L_sol).max(),(L_sol_bk-L_sol).std()) 
+
+        del self.intersect_info
+
+        L_sol = (Lmin+Lmax) /2 
+        ray.set_raytraced(Length=L_sol, ref_type=frame_type, ref_num=frame_num)
+
+
+
+        return #R_sol, phi_sol, Z_sol, L_sol, frame_type, frame_num
 
                 
     def RφZ(self,L,Ve_theta, Ho_theta,Z0,R0,Phi0=0):
