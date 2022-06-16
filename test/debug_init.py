@@ -2,24 +2,34 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rt1plotpy
 
+__all__ = ['gaussian',
+           'Length_scale_sq', 
+           'Length_scale', 
+           'rt1_ax_kwargs',
+           'cycle']
+
 params = {
         'font.family'      : 'Times New Roman', # font familyの設定
         'mathtext.fontset' : 'stix'           , # math fontの設定
         "font.size"        : 15               , # 全体のフォントサイズが変更されます。
         'xtick.labelsize'  : 12                , # 軸だけ変更されます。
         'ytick.labelsize'  : 12               , # 軸だけ変更されます
+        'xtick.minor.visible' :True,
+        'ytick.minor.visible' :True,
         'xtick.direction'  : 'in'             , # x axis in
         'ytick.direction'  : 'in'             , # y axis in 
         'axes.linewidth'   : 1.0              , # axis line width
         'axes.grid'        : True             , # make grid
         }
-        
+
 plt.rcParams.update(**params)
 
 rt1_ax_kwargs = {'xlim'  :(0,1.1),
                  'ylim'  :(-0.7,0.7), 
                  'aspect': 'equal'
                 }
+
+cycle = plt.get_cmap("tab10") 
 
 n0 = 2#25.99e16*0.8/2
 a  = 1.348
