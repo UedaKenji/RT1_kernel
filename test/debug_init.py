@@ -1,12 +1,14 @@
 import matplotlib.pyplot as plt 
 import numpy as np
 import rt1plotpy
+import mpl_toolkits.axes_grid1
 
 __all__ = ['gaussian',
            'Length_scale_sq', 
            'Length_scale', 
            'rt1_ax_kwargs',
-           'cycle']
+           'cycle',
+           'imshow_cbar',]
 
 params = {
         'font.family'      : 'Times New Roman', # font familyの設定
@@ -50,3 +52,14 @@ def Length_scale_sq(r,z):
 
 def Length_scale(r,z):
     return np.sqrt( Length_scale_sq(r,z))
+
+    
+def imshow_cbar(f:plt.Figure, ax, im0, title:str=None,**kwargs):
+
+    divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)
+    cax = divider.append_axes('right', '5%', pad='3%')
+    im = ax.imshow(im0,**kwargs)
+    ax.set_title(title)
+    ax.set_aspect('equal')
+    f.colorbar(im,cax=cax)
+

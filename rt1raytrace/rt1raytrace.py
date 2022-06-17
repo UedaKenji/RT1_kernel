@@ -5,6 +5,7 @@ from rt1plotpy import frame
 from typing import Optional, Union,Tuple,Callable,List
 import time 
 import math
+from sympy import Q
 from tqdm import tqdm
 import scipy.linalg as linalg
 from numba import jit
@@ -89,6 +90,22 @@ class Ray:
         X = R*np.cos(Phi)
         Y = R*np.sin(Phi)
         return X,Y,Z
+
+    def Direction_Cos(self,
+        R: np.ndarray,
+        flatten:bool =True,
+        ):
+        R1 = (self.R0 * np.sin(self.Ho_theta0)).flatten()
+        Tan = np.sqrt(1+np.tan(self.Ve_theta0)**2).flatten() 
+        Cos = np.einsum('i,j->ij',R1,1/R)
+        Cos[Cos>1] = 1.0
+        Direction_cos = np.einsum('ij,i->ij',Cos,1/Tan)
+
+        if flatten == False:
+            Direction_cos = Direction_cos.reshape(*self.shape,R.size)
+            print(Direction_cos.shape)
+        
+        return Direction_cos
 
 
 class Raytrace(frame.Frame):
