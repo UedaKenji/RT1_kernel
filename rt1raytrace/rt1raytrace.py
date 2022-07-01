@@ -298,7 +298,7 @@ class Raytrace(frame.Frame):
         self.print_raytrace(1)
         self.raytrace2(self.rays[0], Lmax=Lmax, Lnum=Lnum[0], ignore_1st_intersection=False)
         
-        for i in range(1,N):
+        for i in range(1,N):    
             self.print_raytrace(i+1)
             if i == 1:
                 Ve_ref = self.rays[0].Ve_theta0
@@ -533,7 +533,7 @@ class Raytrace(frame.Frame):
         print(i_mainline)
         """
 
-        self.test = line_index_list
+        #self.test = line_index_list
 
 
         for i in range(len(self.all_arcs)):
@@ -865,7 +865,7 @@ class Raytrace(frame.Frame):
             print(i_mainline)
             """
 
-            self.test = line_index_list
+            #self.test = line_index_list
 
 
             for i in range(len(self.all_arcs)):
