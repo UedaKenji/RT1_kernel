@@ -20,7 +20,7 @@ from .plot_utils import *
 sys.path.insert(0,os.pardir)
 import rt1raytrace
 
-__all__ = ['Kernel2D_scatter', 'Kernel2D_grid', 'Kernel1D']
+__all__ = ['Kernel2D_scatter', 'Kernel2D_grid', 'Kernel1D','Observation_Matrix_integral']
 
 @dataclass
 class Observation_Matrix:
@@ -31,6 +31,30 @@ class Observation_Matrix:
         shape = self.H.shape
         self.H :sparse.csr_matrix = sparse.csr_matrix(self.H.reshape(shape[0]*shape[1],shape[2]))
         self.shape :tuple = shape
+    
+    def set_Direction(self,
+        rI: np.ndarray
+        ):
+        Dcos = self.ray.Direction_Cos(R=rI)
+        self.Exist: sparse.csr_matrix  = (self.H > 0)  
+        self.Dcos = self.Exist.multiply(Dcos)
+        pass 
+
+    def projection_A(self,
+        f :np.ndarray,
+        t :np.ndarray,
+        v :np.ndarray,
+        reshape:bool=True
+        ) -> np.ndarray:
+
+        E :sparse.csr_matrix = (self.Exist@sparse.diags(np.log(f)-t)+1.j*self.Dcos@sparse.diags(v))
+        E = E.expm1() + self.Exist
+        A = np.array(self.H.multiply(E).sum(axis=1))
+
+        if reshape:
+            return A.reshape(self.shape[0:2])
+        else:
+            return A
 
     def projection(self,
         f :np.ndarray,
@@ -118,6 +142,12 @@ class Observation_Matrix_integral:
         self.zI = zI 
         #self.is_mask = False
         pass
+
+    def set_directon(self
+        ):
+        self.Hs_mask: List[sparse.csr_matrix]  = [] 
+        Theta = self.Hs[0].ray.Direction_Cos(self.rI,flatten=False)
+        pass 
 
     def set_mask(self,
         mask : Optional[np.ndarray] = None 
