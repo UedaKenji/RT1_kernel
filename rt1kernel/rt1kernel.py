@@ -55,6 +55,15 @@ class Observation_Matrix:
             return A.reshape(self.shape[0:2])
         else:
             return A
+    
+    def Exp(self,
+        a :np.ndarray,
+        v :np.ndarray 
+        ) -> sparse.csr_matrix:
+
+        E :sparse.csr_matrix = (self.Exist@sparse.diags(a)+1.j*self.Dcos@sparse.diags(v))
+        return  E.expm1() + self.Exist
+        
 
     def projection(self,
         f :np.ndarray,
