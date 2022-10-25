@@ -154,8 +154,8 @@ class Observation_Matrix_integral:
 
     def set_directon(self
         ):
-        self.Hs_mask: List[sparse.csr_matrix]  = [] 
-        Theta = self.Hs[0].ray.Direction_Cos(self.rI,flatten=False)
+        for H in self.Hs:
+            H.set_Direction(rI=self.rI)
         pass 
 
     def set_mask(self,
@@ -172,14 +172,16 @@ class Observation_Matrix_integral:
     def set_uniform_ref(self,wave:str):
         n_R, n_I = self.indices[wave]
         for i in range(1,self.n):
-            self.refs[i] = cal_refractive_indices_metal2(self.Hs[i].ray.cos_factor,n_R,n_I)
+            cos_factor = np.nan_to_num(self.Hs[i].ray.cos_factor)
+            self.refs[i] = cal_refractive_indices_metal2(cos_factor,n_R,n_I)
 
     def set_fn_ref(self,fn: Callable[[np.ndarray,np.ndarray],Tuple[np.ndarray,np.ndarray]]):
         for i in range(1,self.n):
             Phi_ref = self.Hs[i].ray.Phi0
             Z_ref = self.Hs[i].ray.Z0
             n_R,n_I = fn(Z_ref,Phi_ref)
-            self.refs[i] = cal_refractive_indices_metal2(self.Hs[i].ray.cos_factor,n_R,n_I)
+            cos_factor = np.nan_to_num(self.Hs[i].ray.cos_factor)
+            self.refs[i] = cal_refractive_indices_metal2(cos_factor,n_R,n_I)
         pass
     
     def set_Hsum(self,
@@ -243,6 +245,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         z_grid: np.ndarray,
         r_grid: np.ndarray,
         length_sq_fuction: Callable[[float,float],None],
+        boundary = 0, 
         ) -> Tuple[np.ndarray,np.ndarray]:     
         """
         create induced point based on length scale function
@@ -350,7 +353,6 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
 
-            self.set_bound_space(delta_l=20e-3)
             ax[0].set_title('Length scale distribution',size=15)
             ax[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
                 
@@ -394,8 +396,6 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             LS = self.length_scale(R,Z)
 
             contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
-
-            self.set_bound_space(delta_l=20e-3)
 
             ax[0].set_title('Length scale distribution',size=15)
                 
@@ -453,7 +453,6 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
 
-            self.set_bound_space(delta_l=20e-3)
 
             ax[0].set_title('Length scale distribution',size=15)
                 
@@ -468,7 +467,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
 
     
-    def set_bound_space(self,delta_l = 1e-2):
+    def set_bound_space(self,delta_l = 1e-2,is_change_local_variable=True):
         """
         create induced point with equal space 
 
@@ -512,13 +511,15 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         r_all = r_all[~is_duplicate]
         z_all = z_all[~is_duplicate]
 
-
-        self.r_bound = r_all
-        self.z_bound = z_all 
-        self.nb = self.z_bound.size
+        print('num of bound point is ',r_all.size)
+        if is_change_local_variable:
+            self.r_bound = r_all
+            self.z_bound = z_all 
+            self.nb = self.z_bound.size
+        else:
+            return r_all,z_all 
 
         
-        print('num of bound point is ',self.nb)
 
 
     def set_induced_point(self,
@@ -547,7 +548,8 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         r_medium   : np.ndarray,
         z_plot: np.ndarray=[None],
         r_plot: np.ndarray=[None],
-        scale    : float = 1
+        scale    : float = 1,
+        add_bound :bool=False,
         )  :
         
         if not 'rI'  in dir(self):
@@ -555,17 +557,30 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             return
         
         s = scale
-        lI = self.length_scale(self.rI,self.zI)
-        KII = GibbsKer(x0=self.rI, x1=self.rI, y0=self.zI, y1=self.zI, lx0=lI*s, lx1=lI*s, isotropy=True)
-        self.KII_inv = np.linalg.inv(KII+1e-5*np.eye(self.nI))
+        Z_medium,R_medium  = np.meshgrid(z_medium, r_medium, indexing='ij')
+        lm = self.length_scale(R_medium.flatten(), Z_medium.flatten())
+        lm = np.nan_to_num(lm,nan=1)
+
+        if add_bound:
+            self.add_bound=True
+            rIb = np.concatenate([self.rI,self.r_bound])
+            zIb = np.concatenate([self.zI,self.z_bound])
+            self.rIb,self.zIb=rIb,zIb
+            lI = self.length_scale(rIb,zIb)
+            KII = GibbsKer(x0=rIb, x1=rIb, y0=zIb, y1=zIb, lx0=lI*s, lx1=lI*s, isotropy=True)
+            self.KII_inv = np.linalg.inv(KII+1e-5*np.eye(self.nI+self.nb))
+            self.KpI = GibbsKer(x0 = R_medium.flatten(),x1 = rIb, y0 = Z_medium.flatten(), y1 =zIb, lx0=lm*s, lx1=lI*s, isotropy=True)        
+        else:
+            self.add_bound=False
+            lI = self.length_scale(self.rI,self.zI)
+            KII = GibbsKer(x0=self.rI, x1=self.rI, y0=self.zI, y1=self.zI, lx0=lI*s, lx1=lI*s, isotropy=True)
+            self.KII_inv = np.linalg.inv(KII+1e-5*np.eye(self.nI))
+            self.KpI = GibbsKer(x0 = R_medium.flatten(),x1 = self.rI, y0 = Z_medium.flatten(), y1 =self.zI, lx0=lm*s, lx1=lI*s, isotropy=True)
+            
         
         self.mask_m,self.im_kwargs_m = self.grid_input(r_medium,z_medium,isnt_print=False)
 
-        Z_medium,R_medium  = np.meshgrid(z_medium, r_medium, indexing='ij')
 
-        lm = self.length_scale(R_medium.flatten(), Z_medium.flatten())
-        lm = np.nan_to_num(lm,nan=1)
-        self.Kps = GibbsKer(x0 = R_medium.flatten(),x1 = self.rI, y0 = Z_medium.flatten(), y1 =self.zI, lx0=lm*s, lx1=lI*s, isotropy=True)
         
         if z_plot[0] == None:
             return 
@@ -586,13 +601,21 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             self.Λ_z1r1_inv = 1 / np.einsum('i,j->ij',λ_z1,λ_r1)
 
             
-    def convert_grid_media(self, fI:np.ndarray):
-        f1 = self.Kps @ ( self.KII_inv @ fI)
+    def convert_grid_media(self,
+        fI:np.ndarray,
+        boundary:float=0
+        ):
+        if self.add_bound:
+            fI = np.concatenate([fI,boundary*np.ones(self.nb)])
+        f1 = self.KpI @ ( self.KII_inv @ fI)
         return f1.reshape(self.mask_m.shape), self.mask_m,self.im_kwargs_m
 
     
-    def convert_grid(self, fI:np.ndarray) -> Tuple[np.ndarray,dict]:
-        f1, _,_,  = self.convert_grid_media(fI)
+    def convert_grid(self, 
+        fI:np.ndarray,
+        boundary:float=0,
+        ) -> Tuple[np.ndarray,np.ndarray,dict]:
+        f1, _,_,  = self.convert_grid_media(fI,boundary)
         fHD = self.KzHDz1 @ (self.Q_z1 @ (self.Λ_z1r1_inv * (self.Q_z1.T @ f1 @ self.Q_r1)) @ self.Q_r1.T) @ self.KrHDr1.T
         return fHD, self.mask, self.im_kwargs
     
@@ -633,6 +656,30 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         H[H < 1e-5] = 0
 
         return Observation_Matrix(H=H, ray=ray)
+
+    def set_kernel(self,
+        length_scale:float=1,
+        is_bound :bool=True ,
+        bound_value : float=0,
+        bound_sig : float = 0.1,
+        bound_space : float = 1e-2,
+        ):
+        ls = length_scale
+        lI = ls*self.length_scale(self.rI,self.zI)
+        rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
+        lb = ls*self.length_scale(rb,zb)
+        KII = GibbsKer(x0=self.rI     , x1=self.rI     , y0=self.zI     , y1=self.zI     , lx0=lI*ls, lx1=lI*ls, isotropy=True)
+        if not is_bound: return KII 
+
+        KIb = GibbsKer(x0=self.rI, x1=rb, y0=self.zI, y1=zb, lx0=lI*ls, lx1=lb*ls, isotropy=True)
+        Kbb = GibbsKer(x0=rb     , x1=rb, y0=zb     , y1=zb, lx0=lb*ls, lx1=lb*ls, isotropy=True)
+        Kbb+= bound_sig**2*np.eye(rb.size)
+
+        Kb = KII - KIb @ np.linalg.inv(Kbb) @ KIb.T
+        fpri  = KIb @ (np.linalg.inv(Kbb) @ (bound_value*np.ones(rb.size)))
+        return Kb,fpri
+
+        
 
 
 @jit
