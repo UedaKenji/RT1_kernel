@@ -152,6 +152,7 @@ class GPT_log:
         g_obs:np.ndarray,
         num:int=0,
         ):
+        self.g_obs=g_obs
         sigma = sigma.flatten()
         g_obs = g_obs.flatten()
         self.sig_inv = 1/sigma
@@ -193,6 +194,18 @@ class GPT_log:
         delta_f[delta_f>+3] = +3
 
         return delta_f
+    
+    def check_diff(self,
+        f:np.ndarray):
+            
+        fig,ax = plt.subplots(1,3,figsize=(15,5))
+        g = self.Obs.Hs[0].projection(np.exp(f))
+        imshow_cbar(fig,ax[0],g)
+        vmax = (abs(g-self.g_obs)).max()
+        imshow_cbar(fig,ax[1],g-self.g_obs,vmin=-vmax,vmax=vmax,cmap='turbo')
+        
+        ax[2].hist((g-self.g_obs).flatten(),bins=50)
+        plt.show()
 
     
     def calc_core_fast(self,

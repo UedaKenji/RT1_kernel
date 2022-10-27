@@ -225,8 +225,8 @@ class Observation_Matrix_integral:
 def Observation_Matrix_integral_load_model(
     path:str
     ) -> Observation_Matrix_integral:
-    pass 
     return pd.read_pickle(path)
+
 class Kernel2D_scatter(rt1plotpy.frame.Frame):
     def __init__(self,
         dxf_file  :str,
