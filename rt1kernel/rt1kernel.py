@@ -20,7 +20,11 @@ from .plot_utils import *
 sys.path.insert(0,os.pardir)
 import rt1raytrace
 
-__all__ = ['Kernel2D_scatter', 'Kernel2D_grid', 'Kernel1D','Observation_Matrix_integral']
+__all__ = ['Kernel2D_scatter', 
+           'Kernel2D_grid', 
+           'Kernel1D',
+           'Observation_Matrix_integral',
+           'Observation_Matrix_integral_load_model']
 
 @dataclass
 class Observation_Matrix:
@@ -215,9 +219,14 @@ class Observation_Matrix_integral:
             g = self.H_sum @ f
             return g
 
-
     def __call__(self):
         return self.H_sum
+
+def Observation_Matrix_integral_load_model(
+    path:str
+    ) -> Observation_Matrix_integral:
+    pass 
+    return pd.read_pickle(path)
 class Kernel2D_scatter(rt1plotpy.frame.Frame):
     def __init__(self,
         dxf_file  :str,
