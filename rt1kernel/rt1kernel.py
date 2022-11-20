@@ -59,6 +59,21 @@ class Observation_Matrix:
             return A.reshape(self.shape[0:2])
         else:
             return A
+
+    def projection_A2(self,
+        a :np.ndarray,
+        v :np.ndarray,
+        reshape:bool=True
+        ) -> np.ndarray:
+
+        E :sparse.csr_matrix = (self.Exist@sparse.diags(a)+1.j*self.Dcos@sparse.diags(v))
+        E = E.expm1() + self.Exist
+        A = np.array(self.H.multiply(E).sum(axis=1))
+
+        if reshape:
+            return A.reshape(self.shape[0:2])
+        else:
+            return A
     
     def Exp(self,
         a :np.ndarray,
