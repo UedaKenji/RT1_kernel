@@ -5,7 +5,6 @@ from rt1plotpy import frame
 from typing import Optional, Union,Tuple,Callable,List
 import time 
 import math
-from sympy import Q
 from tqdm import tqdm
 import scipy.linalg as linalg
 from numba import jit
@@ -16,9 +15,9 @@ import scipy.sparse as sparse
 import pandas as pd
 import os
 
-from  .plot_utils import *
+from rt1raytrace.plot_utils import *
 
-__all__ = ['Raytrace','Ray']
+__all__ = ['Raytrace','Circle','Ray','Raytrace_load_model']
 
 
 @dataclass
@@ -106,6 +105,56 @@ class Ray:
             print(Direction_cos.shape)
         
         return Direction_cos
+        
+@dataclass
+class Circle:
+    
+    radius     :float
+    rφz_norm   :Tuple[float,float,float] =None
+    xyz_norm   :Tuple[float,float,float] =None
+    rφz_center :Tuple[float,float,float] =None 
+    xyz_center :Tuple[float,float,float] =None 
+
+    def __post_init__(self):
+        if self.xyz_center is None:
+            r,phi,z = self.rφz_center
+            self.xyz_center= r*np.cos(phi), r*np.sin(phi), z
+
+        if self.xyz_norm is None:
+            if self.rφz_norm is None:
+                self.xyz_norm = self.xyz_center
+            else:
+                r,phi,z = self.rφz_norm
+                self.xyz_norm = r*np.cos(phi), r*np.sin(phi), z
+
+        xc, yc, zc = self.xyz_center
+        xn, yn, zn = self.xyz_norm
+        alpha = (xc*xn+yc*yn+zc*zn) / (xn*xn +yn*yn +zn*zn)
+        print('alpha',alpha)
+        self.xyz_norm = alpha*xn, alpha*yn, alpha*zn
+
+    def is_in_circle(self,ray:Ray):
+        X,Y,Z = ray.XYZ_ray(Lmax=ray.Length*1.001,Lnum=2)
+
+        x0,y0,z0 = X[0],Y[0],Z[0]
+        x1,y1,z1 = X[1],Y[1],Z[1]
+
+        xc,yc,zc = self.xyz_center
+        xn,yn,zn = self.xyz_norm
+
+        inner0 = ((x0-xn)*xn+(y0-yn)*yn+(z0-zn)*zn) > 0
+        inner1 = ((x1-xn)*xn+(y1-yn)*yn+(z1-zn)*zn) > 0
+        is_cross_plane =  (inner0^inner1)
+
+        alpha = ((xn-x1)*xn+(yn-y1)*yn+(zn-z1)*zn) / ((x0-x1)*xn+(y0-y1)*yn+(z0-z1)*zn)
+        P = (alpha*x0+(1-alpha)*x1, alpha*y0+(1-alpha)*y1, alpha*z0+(1-alpha)*z1)
+        is_in_radius = (  (P[0]-xc)**2 + (P[1]-yc)**2 + (P[2]-zc)**2) < self.radius**2
+        is_cross_circle = is_in_radius *  is_cross_plane
+        return is_cross_circle
+
+
+
+
 
 
 class Raytrace(frame.Frame):
@@ -162,7 +211,7 @@ class Raytrace(frame.Frame):
         focal_length: float,
         image_size  : Tuple[float,float],
         image_shape : Tuple[int,int],
-        location    : Tuple[float,float],
+        location    : Tuple[float,float,float],
         center_angles: Tuple[float,float],
         rotation    : float=0,
         ) -> None:
@@ -179,7 +228,7 @@ class Raytrace(frame.Frame):
         image_shape  : Tuple[int,int],
             this param is the shape of array associated with image, like as ( num of H, num of W )
         location: Tuple[float,float],
-            equal to ( Z_cam, R_cam ) 
+            equal to ( Z_cam, Phi_cam, R_cam ) 
         center_angles: Tuple[float,float],
             equal to (h_angle[deg], w_angle)
         rotation: float=0,
@@ -199,7 +248,7 @@ class Raytrace(frame.Frame):
         self.rotation = rotation 
 
         self.im_shape = image_shape
-        self.Z_cam, self.R_cam = location
+        self.Z_cam,self.Phi_cam, self.R_cam = location
         cos,sin =  np.cos(rotation*np.pi/180), np.sin(rotation*np.pi /180)
 
         h = np.linspace( 0.5*h_length *( -1 + 1/h_num), 0.5 *h_length *( 1 - 1/h_num), h_num )
@@ -215,12 +264,12 @@ class Raytrace(frame.Frame):
                             Ho_theta0 = self.Ho_cam,
                             R0        = self.R_cam,
                             Z0        = self.Z_cam,
-                            Phi0      = 1,
+                            Phi0      = self.Phi_cam,
                             )
  
     
     def set_angles(self,
-        location: Tuple[float,float],
+        location: Tuple[float,float,float],
         H_angles: np.ndarray         ,
         W_angles: np.ndarray         ,
         ):
@@ -230,8 +279,8 @@ class Raytrace(frame.Frame):
 
         Parameters
         ----------
-        location: Tupple[float,float],
-            equal to ( Z_cam, R_cam ) 
+        location: Tupple[float, flaot, float],
+            equal to ( Z_cam,Phi_cam, R_cam ) 
         H_angles: np.ndarray         ,
             2 dim numpy array of h angles [rad]
         W_angles: np.ndarray         ,
@@ -242,11 +291,12 @@ class Raytrace(frame.Frame):
         None
         """
         self.im_shape = H_angles.shape
-        self.Z_cam,   self.R_cam = location
+        self.Z_cam, self.Phi_cam, self.R_cam = location
         self.Ve_cam, self.Ho_cam = H_angles, W_angles
         self.ray_1st = Ray( Ve_theta0 = self.Ve_cam,
                             Ho_theta0 = self.Ho_cam,
                             R0        = self.R_cam ,
+                            Phi0      = self.Phi_cam,
                             Z0        = self.Z_cam ,)
 
         
@@ -298,7 +348,7 @@ class Raytrace(frame.Frame):
         self.print_raytrace(1)
         self.raytrace2(self.rays[0], Lmax=Lmax, Lnum=Lnum[0], ignore_1st_intersection=False)
         
-        for i in range(1,N):    
+        for i in range(1,N):
             self.print_raytrace(i+1)
             if i == 1:
                 Ve_ref = self.rays[0].Ve_theta0
@@ -377,8 +427,6 @@ class Raytrace(frame.Frame):
             Z = Z[:,hoge]
             for i in range(R.shape[1]):
                 ax.plot(R[:,i],Z[:,i],color=cycle(int(i%10)))
-        
-
 
     def show_ims(self,
 
@@ -1163,6 +1211,14 @@ class Raytrace(frame.Frame):
         self.R_inp = load['R_inp']
         self.Z0 = load['ZR0'][0]
         self.R0 = load['ZR0'][1]
+
+def Raytrace_load_model(
+    path:str,
+    is_plot:bool=False,
+    ) -> Raytrace:
+    model:Raytrace = pd.read_pickle(path) 
+    if is_plot: model.show_ims()
+    return model
 
 @jit
 def d2min(x,y,xs,ys):
