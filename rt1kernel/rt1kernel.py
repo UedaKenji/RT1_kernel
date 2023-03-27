@@ -331,11 +331,28 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         isnt_print: bool = False
         ) -> Tuple[np.ndarray, dict]:
         mask,extent = self.__grid_input(R, Z, fill_point, fill_point_2nd, isnt_print)
+        """
+        this functions is to return 'mask' and 'imshow_kwargs' np.array for imshow plottting
 
+        Parameters
+        ----------
+        R: np.ndarray,
+            array of R axis with 1dim
+        Z: np.ndarray,
+            array of Z axis with 1dim
+
+        fill_point: Tuple[float,float] = (0.5,0), optional,
+        fill_point_2nd: Optional[Tuple[float,float]] = None, optional
+
+        Reuturns
+        ----------
+        mask:
+        imshow_kwargs:  {"origin":"lower","extent":extent}
+        """
         return mask, {"origin":"lower","extent":extent}
 
     def set_bound_grid(self,r,z):
-        self.grid_input(r,z,isnt_print=True)
+        #self.grid_input(r,z,isnt_print=True)
         r_grid,z_grid=np.meshgrid(r,z,indexing='xy')
         self.r_bound = r_grid[self.Is_bound]
         self.z_bound = z_grid[self.Is_bound]
@@ -687,23 +704,86 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         bound_value : float=0,
         bound_sig : float = 0.1,
         bound_space : float = 1e-2,
-        ):
+        )->Tuple[np.ndarray,np.ndarray]:
+
         ls = length_scale
         lI = ls*self.length_scale(self.rI,self.zI)
+        KII = GibbsKer(x0=self.rI     , x1=self.rI     , y0=self.zI     , y1=self.zI     , lx0=lI*ls, lx1=lI*ls, isotropy=True)
+        if not is_bound: return KII, (fpri:=np.zeros_like(self.rI))
+
         rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
         lb = ls*self.length_scale(rb,zb)
-        KII = GibbsKer(x0=self.rI     , x1=self.rI     , y0=self.zI     , y1=self.zI     , lx0=lI*ls, lx1=lI*ls, isotropy=True)
-        if not is_bound: return KII 
-
         KIb = GibbsKer(x0=self.rI, x1=rb, y0=self.zI, y1=zb, lx0=lI*ls, lx1=lb*ls, isotropy=True)
         Kbb = GibbsKer(x0=rb     , x1=rb, y0=zb     , y1=zb, lx0=lb*ls, lx1=lb*ls, isotropy=True)
         Kbb+= bound_sig**2*np.eye(rb.size)
 
         Kb = KII - KIb @ np.linalg.inv(Kbb) @ KIb.T
-        fpri  = KIb @ (np.linalg.inv(Kbb) @ (bound_value*np.ones(rb.size)))
-        return Kb,fpri
+        mu_f_pri  = KIb @ (np.linalg.inv(Kbb) @ (bound_value*np.ones(rb.size)))
+
+        return Kb,mu_f_pri
+    
+    
+    def set_flux_kernel(self,
+        psi_scale:float=0.3,
+        B_scale:float=0.3,
+        is_bound :bool=True ,
+        bound_value : float=-2,
+        bound_sig : float = 0.05,
+        bound_space : float = 1e-1,
+        zero_value_index : np.ndarray =None, # requres b
+        )->Tuple[np.ndarray,np.ndarray]:
+
+        rI,zI = self.rI,self.zI
+        psi_i = rt1plotpy.mag.psi(rI,zI,separatrix=False)
+        br_i,bz_i = rt1plotpy.mag.bvec(rI,zI,separatrix=False)
+        babs_i = np.sqrt(br_i**2+bz_i**2)
+
+                
+        Psi_i = np.meshgrid(psi_i,psi_i,indexing='ij')
+        logb = np.log(babs_i)
+        logBabs_i = np.meshgrid(logb,logb,indexing='ij')
+                
+        psi_len  =psi_i.std()*psi_scale
+        psi_psi = (Psi_i[0]-Psi_i[1])**2/ psi_len**2
+
+        b_len = logb.std()*B_scale
+        b_b   = (logBabs_i[0]-logBabs_i[1])**2/b_len**2
+                
+        Kflux_ii = np.exp(-0.5*(psi_psi+b_b))
+
+        if not is_bound: return Kflux_ii, (fpri:=np.zeros_like(self.rI))
+
+        if zero_value_index is None:
+            index = np.zeros(self.nI,dtype=bool)
+        else:
+            index = zero_value_index
+                
+        rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
+        zo,ro = np.concatenate([zI[index],zb]), np.concatenate([rI[index],rb])
+                
+        psi_o = rt1plotpy.mag.psi(ro,zo,separatrix=False)
+        br_o,bz_o = rt1plotpy.mag.bvec(ro,zo,separatrix=False)
+        babs_o = np.sqrt(br_o**2+bz_o**2)
+                
+
+        Psi_o = np.meshgrid(psi_o,psi_o,indexing='ij') / psi_len
+        lnBabs_o = np.meshgrid(np.log(babs_o),np.log(babs_o),indexing='ij') / b_len
+        Psi_io = np.meshgrid(psi_i,psi_o,indexing='ij') / psi_len
+        lnBabs_io = np.meshgrid(np.log(babs_i),np.log(babs_o),indexing='ij') / b_len
 
         
+        Kb_oo =  np.exp(-0.5*((Psi_o[0]-Psi_o[1])**2  +(lnBabs_o[0]-lnBabs_o[1])**2))
+        Kb_io =  np.exp(-0.5*((Psi_io[0]-Psi_io[1])**2+(lnBabs_io[0]-lnBabs_io[1])**2))
+        
+        out_sig = bound_sig
+        out_value = bound_value
+        Kb_oo_sig_inv = np.linalg.inv(Kb_oo+out_sig**2*np.eye(ro.size))
+        Kflux_pri = Kflux_ii - Kb_io @ Kb_oo_sig_inv @ Kb_io.T 
+        mu_f_pri  = 0*np.ones(self.nI)+Kb_io @  (Kb_oo_sig_inv @ (out_value*np.ones(ro.size))  ) 
+        return Kflux_pri,mu_f_pri
+
+
+
 
 
 @jit
