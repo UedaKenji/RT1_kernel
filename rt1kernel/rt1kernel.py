@@ -20,15 +20,11 @@ from .plot_utils import *
 sys.path.insert(0,os.pardir)
 import rt1raytrace
 
-<<<<<<< HEAD
-__all__ = ['Kernel2D_scatter', 'Kernel2D_grid', 'Kernel1D','Observation_Matrix_integral']
-=======
 __all__ = ['Kernel2D_scatter', 
            'Kernel2D_grid', 
            'Kernel1D',
            'Observation_Matrix_integral',
            'Observation_Matrix_integral_load_model']
->>>>>>> reflection
 
 @dataclass
 class Observation_Matrix:
@@ -63,8 +59,6 @@ class Observation_Matrix:
             return A.reshape(self.shape[0:2])
         else:
             return A
-<<<<<<< HEAD
-=======
 
     def projection_A2(self,
         a :np.ndarray,
@@ -88,8 +82,6 @@ class Observation_Matrix:
 
         E :sparse.csr_matrix = (self.Exist@sparse.diags(a)+1.j*self.Dcos@sparse.diags(v))
         return  E.expm1() + self.Exist
-        
->>>>>>> reflection
 
     def projection(self,
         f :np.ndarray,
@@ -180,13 +172,8 @@ class Observation_Matrix_integral:
 
     def set_directon(self
         ):
-<<<<<<< HEAD
-        self.Hs_mask: List[sparse.csr_matrix]  = [] 
-        Theta = self.Hs[0].ray.Direction_Cos(self.rI,flatten=False)
-=======
         for H in self.Hs:
             H.set_Direction(rI=self.rI)
->>>>>>> reflection
         pass 
 
     def set_mask(self,
