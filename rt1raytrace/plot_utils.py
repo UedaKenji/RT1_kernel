@@ -33,7 +33,7 @@ params = {
         'xtick.minor.visible': True,
         'ytick.minor.visible': True,
         'axes.linewidth'   : 1.0              , # axis line width
-        'axes.grid'        : False             , # make grid
+        'axes.grid'        : True            , # make grid
         }       
         
 plt.rcParams.update(**params)
