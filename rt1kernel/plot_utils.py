@@ -7,6 +7,8 @@ from unicodedata import name
 
 import matplotlib.pyplot as plt
 import mpl_toolkits.axes_grid1
+from matplotlib.colors import Normalize
+from matplotlib.cm import ScalarMappable
 import numpy as np
 import pandas as pd
 from numpy.core.arrayprint import IntegerFormat
@@ -27,20 +29,20 @@ params = {
         'xtick.minor.visible': True,
         'ytick.minor.visible': True,
         'axes.linewidth'   : 1.0              , # axis line width
-        'axes.grid'        : False             , # make grid
+        'axes.grid'        : True             , # make grid
         }       
         
 plt.rcParams.update(**params)
 
 
-def imshow_cbar(f:plt.Figure, ax, im0, title:str=None,**kwargs):
+def imshow_cbar(ax, im0,cbar_title=None,**kwargs):
 
-    divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)
-    cax = divider.append_axes('right', '5%', pad='3%')
     im = ax.imshow(im0,**kwargs)
-    ax.set_title(title)
+    divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)    
+    cax = divider.append_axes("right", size="5%", pad='3%')
+    cbar = plt.colorbar(im, cax=cax, orientation='vertical')
+    if cbar_title is not None: cbar.set_title(cbar_title)
     ax.set_aspect('equal')
-    f.colorbar(im,cax=cax)
 
 
 
@@ -52,3 +54,40 @@ def contourf_cbar(f:plt.Figure, ax, im0, title:str=None,**kwargs):
     ax.set_title(title)
     ax.set_aspect('equal')
     f.colorbar(im,cax=cax)
+
+    
+def imshow_cbar_bottom(ax, im0,cbar_title=None,**kwargs):
+
+    im = ax.imshow(im0,**kwargs)
+    divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)    
+    cax = divider.append_axes("bottom", size="5%", pad='3%')
+    cbar = plt.colorbar(im, cax=cax, orientation='horizontal')
+    if cbar_title is not None: cbar.set_title(cbar_title)
+    ax.set_aspect('equal')
+
+    
+def scatter_cbar(ax, x,y,c,cbar_title=None,**kwargs):
+    im = ax.scatter(x=x,y=y,c=c,**kwargs)
+    divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)
+    cax = divider.append_axes('right' , size="5%", pad='3%')
+    cbar = plt.colorbar(im, cax=cax, orientation='vertical')
+    if cbar_title is not None: cbar.set_label(cbar_title)
+    ax.set_aspect('equal')
+
+    
+def cmap_line(ax, x,y,C,cmap='viridis',cbar_title=None,**kwargs):
+    
+    norm = Normalize(vmin=y.min(), vmax=y.max())
+    cmap = plt.get_cmap(cmap)
+
+    for i,yi in enumerate(y):
+        color = cmap(norm(yi))
+        ax.plot(x, C[i,:], color=color,**kwargs)
+    sm = ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad='3%')
+    cbar = plt.colorbar(sm, cax=cax)
+    if cbar_title is not None: cbar.set_label(cbar_title)
+
+

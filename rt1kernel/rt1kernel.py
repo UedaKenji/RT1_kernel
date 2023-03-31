@@ -20,7 +20,15 @@ from .plot_utils import *
 sys.path.insert(0,os.pardir)
 import rt1raytrace
 
+<<<<<<< HEAD
 __all__ = ['Kernel2D_scatter', 'Kernel2D_grid', 'Kernel1D','Observation_Matrix_integral']
+=======
+__all__ = ['Kernel2D_scatter', 
+           'Kernel2D_grid', 
+           'Kernel1D',
+           'Observation_Matrix_integral',
+           'Observation_Matrix_integral_load_model']
+>>>>>>> reflection
 
 @dataclass
 class Observation_Matrix:
@@ -55,6 +63,33 @@ class Observation_Matrix:
             return A.reshape(self.shape[0:2])
         else:
             return A
+<<<<<<< HEAD
+=======
+
+    def projection_A2(self,
+        a :np.ndarray,
+        v :np.ndarray,
+        reshape:bool=True
+        ) -> np.ndarray:
+
+        E :sparse.csr_matrix = (self.Exist@sparse.diags(a)+1.j*self.Dcos@sparse.diags(v))
+        E = E.expm1() + self.Exist
+        A = np.array(self.H.multiply(E).sum(axis=1))
+
+        if reshape:
+            return A.reshape(self.shape[0:2])
+        else:
+            return A
+    
+    def Exp(self,
+        a :np.ndarray,
+        v :np.ndarray 
+        ) -> sparse.csr_matrix:
+
+        E :sparse.csr_matrix = (self.Exist@sparse.diags(a)+1.j*self.Dcos@sparse.diags(v))
+        return  E.expm1() + self.Exist
+        
+>>>>>>> reflection
 
     def projection(self,
         f :np.ndarray,
@@ -145,8 +180,13 @@ class Observation_Matrix_integral:
 
     def set_directon(self
         ):
+<<<<<<< HEAD
         self.Hs_mask: List[sparse.csr_matrix]  = [] 
         Theta = self.Hs[0].ray.Direction_Cos(self.rI,flatten=False)
+=======
+        for H in self.Hs:
+            H.set_Direction(rI=self.rI)
+>>>>>>> reflection
         pass 
 
     def set_mask(self,
@@ -163,14 +203,16 @@ class Observation_Matrix_integral:
     def set_uniform_ref(self,wave:str):
         n_R, n_I = self.indices[wave]
         for i in range(1,self.n):
-            self.refs[i] = cal_refractive_indices_metal2(self.Hs[i].ray.cos_factor,n_R,n_I)
+            cos_factor = np.nan_to_num(self.Hs[i].ray.cos_factor)
+            self.refs[i] = cal_refractive_indices_metal2(cos_factor,n_R,n_I)
 
     def set_fn_ref(self,fn: Callable[[np.ndarray,np.ndarray],Tuple[np.ndarray,np.ndarray]]):
         for i in range(1,self.n):
             Phi_ref = self.Hs[i].ray.Phi0
             Z_ref = self.Hs[i].ray.Z0
             n_R,n_I = fn(Z_ref,Phi_ref)
-            self.refs[i] = cal_refractive_indices_metal2(self.Hs[i].ray.cos_factor,n_R,n_I)
+            cos_factor = np.nan_to_num(self.Hs[i].ray.cos_factor)
+            self.refs[i] = cal_refractive_indices_metal2(cos_factor,n_R,n_I)
         pass
     
     def set_Hsum(self,
@@ -204,9 +246,14 @@ class Observation_Matrix_integral:
             g = self.H_sum @ f
             return g
 
-
     def __call__(self):
         return self.H_sum
+
+def Observation_Matrix_integral_load_model(
+    path:str
+    ) -> Observation_Matrix_integral:
+    return pd.read_pickle(path)
+
 class Kernel2D_scatter(rt1plotpy.frame.Frame):
     def __init__(self,
         dxf_file  :str,
@@ -228,12 +275,14 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         """
         super().__init__(dxf_file,show_print)
         self.im_shape: Union[Tuple[int,int],None] = None
+        self.V = None
         print('you have to "create_induced_point()" or "set_induced_point()" next.')
 
     def create_induced_point(self,
         z_grid: np.ndarray,
         r_grid: np.ndarray,
         length_sq_fuction: Callable[[float,float],None],
+        boundary = 0, 
         ) -> Tuple[np.ndarray,np.ndarray]:     
         """
         create induced point based on length scale function
@@ -295,11 +344,28 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         isnt_print: bool = False
         ) -> Tuple[np.ndarray, dict]:
         mask,extent = self.__grid_input(R, Z, fill_point, fill_point_2nd, isnt_print)
+        """
+        this functions is to return 'mask' and 'imshow_kwargs' np.array for imshow plottting
 
+        Parameters
+        ----------
+        R: np.ndarray,
+            array of R axis with 1dim
+        Z: np.ndarray,
+            array of Z axis with 1dim
+
+        fill_point: Tuple[float,float] = (0.5,0), optional,
+        fill_point_2nd: Optional[Tuple[float,float]] = None, optional
+
+        Reuturns
+        ----------
+        mask:
+        imshow_kwargs:  {"origin":"lower","extent":extent}
+        """
         return mask, {"origin":"lower","extent":extent}
 
     def set_bound_grid(self,r,z):
-        self.grid_input(r,z,isnt_print=True)
+        #self.grid_input(r,z,isnt_print=True)
         r_grid,z_grid=np.meshgrid(r,z,indexing='xy')
         self.r_bound = r_grid[self.Is_bound]
         self.z_bound = z_grid[self.Is_bound]
@@ -341,7 +407,6 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
 
-            self.set_bound_space(delta_l=20e-3)
             ax[0].set_title('Length scale distribution',size=15)
             ax[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
                 
@@ -385,8 +450,6 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             LS = self.length_scale(R,Z)
 
             contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
-
-            self.set_bound_space(delta_l=20e-3)
 
             ax[0].set_title('Length scale distribution',size=15)
                 
@@ -444,7 +507,6 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
 
-            self.set_bound_space(delta_l=20e-3)
 
             ax[0].set_title('Length scale distribution',size=15)
                 
@@ -459,7 +521,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
 
     
-    def set_bound_space(self,delta_l = 1e-2):
+    def set_bound_space(self,delta_l = 1e-2,is_change_local_variable=True):
         """
         create induced point with equal space 
 
@@ -503,13 +565,15 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         r_all = r_all[~is_duplicate]
         z_all = z_all[~is_duplicate]
 
-
-        self.r_bound = r_all
-        self.z_bound = z_all 
-        self.nb = self.z_bound.size
+        print('num of bound point is ',r_all.size)
+        if is_change_local_variable:
+            self.r_bound = r_all
+            self.z_bound = z_all 
+            self.nb = self.z_bound.size
+        else:
+            return r_all,z_all 
 
         
-        print('num of bound point is ',self.nb)
 
 
     def set_induced_point(self,
@@ -538,7 +602,8 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         r_medium   : np.ndarray,
         z_plot: np.ndarray=[None],
         r_plot: np.ndarray=[None],
-        scale    : float = 1
+        scale    : float = 1,
+        add_bound :bool=False,
         )  :
         
         if not 'rI'  in dir(self):
@@ -546,17 +611,30 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             return
         
         s = scale
-        lI = self.length_scale(self.rI,self.zI)
-        KII = GibbsKer(x0=self.rI, x1=self.rI, y0=self.zI, y1=self.zI, lx0=lI*s, lx1=lI*s, isotropy=True)
-        self.KII_inv = np.linalg.inv(KII+1e-5*np.eye(self.nI))
+        Z_medium,R_medium  = np.meshgrid(z_medium, r_medium, indexing='ij')
+        lm = self.length_scale(R_medium.flatten(), Z_medium.flatten())
+        lm = np.nan_to_num(lm,nan=1)
+
+        if add_bound:
+            self.add_bound=True
+            rIb = np.concatenate([self.rI,self.r_bound])
+            zIb = np.concatenate([self.zI,self.z_bound])
+            self.rIb,self.zIb=rIb,zIb
+            lI = self.length_scale(rIb,zIb)
+            KII = GibbsKer(x0=rIb, x1=rIb, y0=zIb, y1=zIb, lx0=lI*s, lx1=lI*s, isotropy=True)
+            self.KII_inv = np.linalg.inv(KII+1e-5*np.eye(self.nI+self.nb))
+            self.KpI = GibbsKer(x0 = R_medium.flatten(),x1 = rIb, y0 = Z_medium.flatten(), y1 =zIb, lx0=lm*s, lx1=lI*s, isotropy=True)        
+        else:
+            self.add_bound=False
+            lI = self.length_scale(self.rI,self.zI)
+            KII = GibbsKer(x0=self.rI, x1=self.rI, y0=self.zI, y1=self.zI, lx0=lI*s, lx1=lI*s, isotropy=True)
+            self.KII_inv = np.linalg.inv(KII+1e-5*np.eye(self.nI))
+            self.KpI = GibbsKer(x0 = R_medium.flatten(),x1 = self.rI, y0 = Z_medium.flatten(), y1 =self.zI, lx0=lm*s, lx1=lI*s, isotropy=True)
+            
         
         self.mask_m,self.im_kwargs_m = self.grid_input(r_medium,z_medium,isnt_print=False)
 
-        Z_medium,R_medium  = np.meshgrid(z_medium, r_medium, indexing='ij')
 
-        lm = self.length_scale(R_medium.flatten(), Z_medium.flatten())
-        lm = np.nan_to_num(lm,nan=1)
-        self.Kps = GibbsKer(x0 = R_medium.flatten(),x1 = self.rI, y0 = Z_medium.flatten(), y1 =self.zI, lx0=lm*s, lx1=lI*s, isotropy=True)
         
         if z_plot[0] == None:
             return 
@@ -577,13 +655,21 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             self.Λ_z1r1_inv = 1 / np.einsum('i,j->ij',λ_z1,λ_r1)
 
             
-    def convert_grid_media(self, fI:np.ndarray):
-        f1 = self.Kps @ ( self.KII_inv @ fI)
+    def convert_grid_media(self,
+        fI:np.ndarray,
+        boundary:float=0
+        ):
+        if self.add_bound:
+            fI = np.concatenate([fI,boundary*np.ones(self.nb)])
+        f1 = self.KpI @ ( self.KII_inv @ fI)
         return f1.reshape(self.mask_m.shape), self.mask_m,self.im_kwargs_m
 
     
-    def convert_grid(self, fI:np.ndarray) -> Tuple[np.ndarray,dict]:
-        f1, _,_,  = self.convert_grid_media(fI)
+    def convert_grid(self, 
+        fI:np.ndarray,
+        boundary:float=0,
+        ) -> Tuple[np.ndarray,np.ndarray,dict]:
+        f1, _,_,  = self.convert_grid_media(fI,boundary)
         fHD = self.KzHDz1 @ (self.Q_z1 @ (self.Λ_z1r1_inv * (self.Q_z1.T @ f1 @ self.Q_r1)) @ self.Q_r1.T) @ self.KrHDr1.T
         return fHD, self.mask, self.im_kwargs
     
@@ -624,6 +710,136 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         H[H < 1e-5] = 0
 
         return Observation_Matrix(H=H, ray=ray)
+
+    def set_kernel(self,
+        length_scale:float=1,
+        is_bound :bool=True ,
+        bound_value : float=0,
+        bound_sig : float = 0.1,
+        bound_space : float = 1e-2,
+        )->Tuple[np.ndarray,np.ndarray]:
+
+        ls = length_scale
+        lI = ls*self.length_scale(self.rI,self.zI)
+        KII = GibbsKer(x0=self.rI     , x1=self.rI     , y0=self.zI     , y1=self.zI     , lx0=lI*ls, lx1=lI*ls, isotropy=True)
+        if not is_bound: return KII, (fpri:=np.zeros_like(self.rI))
+
+        rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
+        lb = ls*self.length_scale(rb,zb)
+        KIb = GibbsKer(x0=self.rI, x1=rb, y0=self.zI, y1=zb, lx0=lI*ls, lx1=lb*ls, isotropy=True)
+        Kbb = GibbsKer(x0=rb     , x1=rb, y0=zb     , y1=zb, lx0=lb*ls, lx1=lb*ls, isotropy=True)
+        Kbb+= bound_sig**2*np.eye(rb.size)
+
+        Kb = KII - KIb @ np.linalg.inv(Kbb) @ KIb.T
+        mu_f_pri  = KIb @ (np.linalg.inv(Kbb) @ (bound_value*np.ones(rb.size)))
+
+        
+        self.Kf_pri = Kb
+        self.muf_pri = mu_f_pri 
+        self.kernel_type = 'isotropic kernel'
+
+        return Kb,mu_f_pri
+    
+    
+    def set_flux_kernel(self,
+        psi_scale:float=0.3,
+        B_scale:float=0.3,
+        is_bound :bool=True ,
+        bound_value : float=-2,
+        bound_sig : float = 0.05,
+        bound_space : float = 1e-1,
+        zero_value_index : np.ndarray =None, # requres b
+        )->Tuple[np.ndarray,np.ndarray]:
+
+        self.property_K = { 'psi_scale'  : psi_scale,
+                            'B_scale'    : B_scale,
+                            'is_bound'   : is_bound ,
+                            'bound_value': bound_value,
+                            'bound_sig'  : bound_sig,
+                            'bound_space': bound_space} 
+
+        rI,zI = self.rI,self.zI
+        psi_i = rt1plotpy.mag.psi(rI,zI,separatrix=False)
+        br_i,bz_i = rt1plotpy.mag.bvec(rI,zI,separatrix=False)
+        babs_i = np.sqrt(br_i**2+bz_i**2)
+
+                
+        Psi_i = np.meshgrid(psi_i,psi_i,indexing='ij')
+        logb = np.log(babs_i)
+        logBabs_i = np.meshgrid(logb,logb,indexing='ij')
+                
+        psi_len  =psi_i.std()*psi_scale
+        psi_psi = (Psi_i[0]-Psi_i[1])**2/ psi_len**2
+
+        b_len = logb.std()*B_scale
+        b_b   = (logBabs_i[0]-logBabs_i[1])**2/b_len**2
+                
+        Kflux_ii = np.exp(-0.5*(psi_psi+b_b))
+
+        if not is_bound: return Kflux_ii, (fpri:=np.zeros_like(self.rI))
+
+        if zero_value_index is None:
+            index = np.zeros(self.nI,dtype=bool)
+        else:
+            index = zero_value_index
+                
+        rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
+        zo,ro = np.concatenate([zI[index],zb]), np.concatenate([rI[index],rb])
+                
+        psi_o = rt1plotpy.mag.psi(ro,zo,separatrix=False)
+        br_o,bz_o = rt1plotpy.mag.bvec(ro,zo,separatrix=False)
+        babs_o = np.sqrt(br_o**2+bz_o**2)
+                
+
+        Psi_o = np.meshgrid(psi_o,psi_o,indexing='ij') / psi_len
+        lnBabs_o = np.meshgrid(np.log(babs_o),np.log(babs_o),indexing='ij') / b_len
+        Psi_io = np.meshgrid(psi_i,psi_o,indexing='ij') / psi_len
+        lnBabs_io = np.meshgrid(np.log(babs_i),np.log(babs_o),indexing='ij') / b_len
+
+        
+        Kb_oo =  np.exp(-0.5*((Psi_o[0]-Psi_o[1])**2  +(lnBabs_o[0]-lnBabs_o[1])**2))
+        Kb_io =  np.exp(-0.5*((Psi_io[0]-Psi_io[1])**2+(lnBabs_io[0]-lnBabs_io[1])**2))
+        
+        out_sig = bound_sig
+        out_value = bound_value
+        Kb_oo_sig_inv = np.linalg.inv(Kb_oo+out_sig**2*np.eye(ro.size))
+        Kflux_pri = Kflux_ii - Kb_io @ Kb_oo_sig_inv @ Kb_io.T 
+        mu_f_pri  = 0*np.ones(self.nI)+Kb_io @  (Kb_oo_sig_inv @ (out_value*np.ones(ro.size))  ) 
+        
+        self.Kf_pri = Kflux_pri 
+        self.muf_pri = mu_f_pri 
+        self.kernel_type = 'flux kernel'
+        return Kflux_pri,mu_f_pri
+    
+    def sampler(self,
+        K   : Optional[np.ndarray]=None,
+        mu_f: np.ndarray=0
+        ) -> np.ndarray:
+
+        if K is None:
+            K = self.Kf_pri
+            mu_f = self.muf_pri
+
+        K_hash = hash((K.sum(axis=1)).tobytes())
+
+        if self.V is None or (self.K_hash != K_hash):
+            print('Eigenvalue decomposition is recalculated')
+            lam,V = np.linalg.eigh(K)
+            lam[lam<1e-5]= 1e-5
+            self.V = V
+            self.lam = lam
+        else:
+            self.V = self.V
+            self.lam = self.lam
+        
+        self.K_hash = K_hash 
+        
+        noise = np.random.randn(self.nI)
+        return  mu_f+ self.V @ (np.sqrt(self.lam) *  noise)  
+
+
+
+
 
 
 @jit
