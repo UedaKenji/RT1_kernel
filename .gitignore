@@ -1,5 +1,4 @@
-test_reflection-a/ #test_reflectionのフォルダを無視 
-test_forward-a/ 
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -129,3 +128,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+test/*
+test_reflection/* 
+#test_reflectionのフォルダを無視 
+test_forward/*     
