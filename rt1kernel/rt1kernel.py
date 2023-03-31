@@ -263,6 +263,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         """
         super().__init__(dxf_file,show_print)
         self.im_shape: Union[Tuple[int,int],None] = None
+        self.V = None
         print('you have to "create_induced_point()" or "set_induced_point()" next.')
 
     def create_induced_point(self,
@@ -720,6 +721,11 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         Kb = KII - KIb @ np.linalg.inv(Kbb) @ KIb.T
         mu_f_pri  = KIb @ (np.linalg.inv(Kbb) @ (bound_value*np.ones(rb.size)))
 
+        
+        self.Kf_pri = Kb
+        self.muf_pri = mu_f_pri 
+        self.kernel_type = 'isotropic kernel'
+
         return Kb,mu_f_pri
     
     
@@ -732,6 +738,13 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         bound_space : float = 1e-1,
         zero_value_index : np.ndarray =None, # requres b
         )->Tuple[np.ndarray,np.ndarray]:
+
+        self.property_K = { 'psi_scale'  : psi_scale,
+                            'B_scale'    : B_scale,
+                            'is_bound'   : is_bound ,
+                            'bound_value': bound_value,
+                            'bound_sig'  : bound_sig,
+                            'bound_space': bound_space} 
 
         rI,zI = self.rI,self.zI
         psi_i = rt1plotpy.mag.psi(rI,zI,separatrix=False)
@@ -780,7 +793,38 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         Kb_oo_sig_inv = np.linalg.inv(Kb_oo+out_sig**2*np.eye(ro.size))
         Kflux_pri = Kflux_ii - Kb_io @ Kb_oo_sig_inv @ Kb_io.T 
         mu_f_pri  = 0*np.ones(self.nI)+Kb_io @  (Kb_oo_sig_inv @ (out_value*np.ones(ro.size))  ) 
+        
+        self.Kf_pri = Kflux_pri 
+        self.muf_pri = mu_f_pri 
+        self.kernel_type = 'flux kernel'
         return Kflux_pri,mu_f_pri
+    
+    def sampler(self,
+        K   : Optional[np.ndarray]=None,
+        mu_f: np.ndarray=0
+        ) -> np.ndarray:
+
+        if K is None:
+            K = self.Kf_pri
+            mu_f = self.muf_pri
+
+        K_hash = hash((K.sum(axis=1)).tobytes())
+
+        if self.V is None or (self.K_hash != K_hash):
+            print('Eigenvalue decomposition is recalculated')
+            lam,V = np.linalg.eigh(K)
+            lam[lam<1e-5]= 1e-5
+            self.V = V
+            self.lam = lam
+        else:
+            self.V = self.V
+            self.lam = self.lam
+        
+        self.K_hash = K_hash 
+        
+        noise = np.random.randn(self.nI)
+        return  mu_f+ self.V @ (np.sqrt(self.lam) *  noise)  
+
 
 
 

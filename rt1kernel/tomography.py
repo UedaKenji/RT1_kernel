@@ -325,11 +325,126 @@ class GPT_log:
     def check_diff(self,
         f:np.ndarray):
             
-        fig,ax = plt.subplots(1,3,figsize=(15,5))
+        fig,ax = plt.subplots(1,3,figsize=(10,4))
         g = self.Obs.Hs[0].projection(np.exp(f))
         imshow_cbar(fig,ax[0],g)
+        ax[0].set_title('Hf')
         vmax = (abs(g-self.g_obs)).max()
         imshow_cbar(fig,ax[1],g-self.g_obs,vmin=-vmax,vmax=vmax,cmap='turbo')
+        ax[1].set_title('diff_im')
+        
+        ax[2].hist((g-self.g_obs).flatten(),bins=50)
+        plt.show()
+
+    
+    def calc_core_fast(self,
+        f:np.ndarray,
+        num:int=0
+        ):
+        r_f = f - self.f_pri
+        exp_f = np.exp(f)
+        fxf = np.einsum('i,j->ij',exp_f,exp_f)
+        
+        SiR = self.sigiH @ exp_f - self.Sigi_obs
+
+        c1 = (self.sigiH.T @ SiR) * exp_f #self.sigiH.T @ SiR =  self.Hsig2iH  @ exp_f -  self.sigiH.T@ self.Sigi_obs
+        C1 = self.Hsig2iH * fxf 
+
+        Psi_df   = -c1 - self.K_inv @ r_f 
+
+        Psi_dfdf = -C1 - np.diag(c1) - self.K_inv
+
+        DPsi = Psi_dfdf
+        NPsi = Psi_df
+
+        delta_f = - np.linalg.solve(DPsi,NPsi)
+
+        delta_f[delta_f<-3] = -3
+        delta_f[delta_f>+3] = +3
+
+        return delta_f
+
+class GPT_log_torch:
+    import torch
+    def __init__(self,
+        Obs: rt1kernel.Observation_Matrix_integral,
+        Kernel: rt1kernel.Kernel2D_scatter,
+        ) -> None:
+        self.Obs = Obs
+        self.rI = Obs.rI 
+        self.zI = Obs.zI 
+        self.nI = Obs.zI.size  
+        self.Kernel = Kernel
+        pass
+
+    def set_kernel(self,
+        K :np.ndarray,
+        f_pri :np.ndarray = 0,
+        regularization:float = 1e-6,
+        ):
+        K += regularization*np.eye(self.nI)
+
+        self.K_inv = np.linalg.inv(K)
+        self.f_pri = f_pri
+
+    def set_sig(self,
+        sigma:np.ndarray,
+        g_obs:np.ndarray,
+        num:int=0,
+        ):
+        self.g_obs=g_obs
+        sigma = sigma.flatten()
+        g_obs = g_obs.flatten()
+        self.sig_inv = 1/sigma
+        self.sig2_inv = 1/sigma**2
+        H    = self.Obs.Hs[num].H
+
+        self.Sigi_obs = self.sig_inv*(g_obs)
+        self.sigiH   : sparse.csr_matrix =  sparse.diags(self.sig_inv) @ H 
+
+        self.Hsig2iH  = (self.sigiH.T @ self.sigiH).toarray() 
+        
+
+    def calc_core(self,
+        f:np.ndarray,
+        num:int=0
+        ):
+        Exist = self.Obs.Hs[num].Exist
+        E :sparse.csr_matrix = (Exist@sparse.diags(f))
+        Exp =  E.expm1() + Exist
+        
+        SiHE  :sparse.csr_matrix = self.sigiH.multiply(Exp)
+        SiR = np.array(SiHE.sum(axis=1)).flatten() - self.Sigi_obs
+        r_f = f - self.f_pri
+
+        c1 = (SiHE.T @ SiR) 
+
+        C1 = (SiHE.T @ SiHE)
+
+        Psi_df   = -c1 - self.K_inv @ r_f 
+
+        Psi_dfdf = -C1 - np.diag(c1) - self.K_inv
+
+        DPsi = Psi_dfdf
+        NPsi = Psi_df
+
+        delta_f = - np.linalg.solve(DPsi,NPsi)
+
+        delta_f[delta_f<-3] = -3
+        delta_f[delta_f>+3] = +3
+
+        return delta_f
+    
+    def check_diff(self,
+        f:np.ndarray):
+            
+        fig,ax = plt.subplots(1,3,figsize=(10,4))
+        g = self.Obs.Hs[0].projection(np.exp(f))
+        imshow_cbar(fig,ax[0],g)
+        ax[0].set_title('Hf')
+        vmax = (abs(g-self.g_obs)).max()
+        imshow_cbar(fig,ax[1],g-self.g_obs,vmin=-vmax,vmax=vmax,cmap='turbo')
+        ax[1].set_title('diff_im')
         
         ax[2].hist((g-self.g_obs).flatten(),bins=50)
         plt.show()
