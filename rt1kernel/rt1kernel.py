@@ -601,6 +601,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         Z_medium,R_medium  = np.meshgrid(z_medium, r_medium, indexing='ij')
         lm = self.length_scale(R_medium.flatten(), Z_medium.flatten())
         lm = np.nan_to_num(lm,nan=1)
+        self.Lsq_I = self.length_scale_sq(self.rI,self.zI) 
 
         if add_bound:
             self.add_bound=True

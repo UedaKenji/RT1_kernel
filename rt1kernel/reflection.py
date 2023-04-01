@@ -99,7 +99,7 @@ class Reflection_Kernel_grid:
 
         if show:              
             fig,axs=plt.subplots(1,2,figsize=(11,5))
-            scatter_cbar(axs[0],x=self.CI.flatten(),y=self.HI.flatten(),c=sigmoid(f),s=100,vmax=1,vmin=0)
+            scatter_cbar(axs[0],x=self.CI.flatten(),y=self.HI.flatten(),c=sigmoid(f),marker='s',s=70,vmax=1,vmin=0)
             axs[0].set_ylabel(r'z[m]')
             axs[0].set_xlabel(r'$\cos\theta$')
             cmap_line(axs[1],
@@ -116,6 +116,8 @@ class Reflection_Kernel_grid:
             axs[0].set_xlim(axs[0].get_xlim()[::-1])
             axs[1].set_xlabel(r'$\theta$[deg]')
             axs[1].set_ylim(0,1)
+            axs[0].grid(False)
+
             plt.show()
         return f
     
@@ -129,25 +131,26 @@ class Reflection_Kernel_grid:
         from matplotlib.cm import ScalarMappable
         
         if show:              
-            fig,axs=plt.subplots(1,2,figsize=(11,4))
-            scatter_cbar(axs[0],x=self.CI.flatten(),y=self.HI.flatten(),c=sigmoid(f),s=100)
-            axs[0].set_ylabel(r'z[m]')
+            fig,axs=plt.subplots(1,2,figsize=(11,5))
+            scatter_cbar(axs[0],x=self.CI.flatten(),y=self.HI.flatten(),marker='s',c=sigmoid(f),s=75,vmax=1,vmin=0)
+            axs[0].set_ylabel(r'$z$ [m]')
             axs[0].set_xlabel(r'$\cos\theta$')
             cmap_line(axs[1],
                       x=180/np.pi*np.arccos(self.cI),
                       y=self.hI,
                       C=sigmoid(f.reshape(self.CI.shape).T),
                       cmap='turbo',
-                      cbar_title=r'z[m]',
+                      cbar_title=r'$z$ [m]',
                       alpha=0.5
                       )
             
             axs[1].plot(180/np.pi*np.arccos(self.cI),sigmoid(self.mur_pri.reshape(self.CI.shape)).mean(axis=1),'black')
             axs[1].set_xlim(0,90)
             axs[0].set_xlim(axs[0].get_xlim()[::-1])
-            axs[1].set_xlabel(r'$\theta$[deg]')
+            axs[1].set_xlabel(r'$\theta$ [deg]')
             axs[1].set_ylim(0,1)
-            axs[0].set_ylim(-0.5,0.5)
+            #axs[0].set_ylim(-0.6,0.6)
+            axs[0].grid(False)
 
         return 
 
@@ -342,6 +345,7 @@ class Reflection_tomography:
     def set_obs(self,
         g_obs_list    :List[np.ndarray],
         ref_true      :None,
+        name_list     :Optional[List[str]] = None,
         f_true_list   :Optional[List[np.ndarray]]=None,
         sig_im        :Optional[np.ndarray]=None,
         ref_mask      :Optional[np.ndarray]=None,
@@ -349,6 +353,7 @@ class Reflection_tomography:
         self.num_im = len(g_obs_list)
         self.f_true_list = f_true_list 
         self.ref_true = ref_true
+        self.n_frame = len(g_obs_list)
         
         self.g_obs_list = g_obs_list
         g_size = g_obs_list[0].size
@@ -363,6 +368,19 @@ class Reflection_tomography:
             self.ref_mask = np.zeros(g_size,dtype=np.bool8)
         else:
             self.ref_mask = (ref_mask.flatten() == True)
+
+        if name_list is None:
+            self.name_list = []
+            for i in range(self.n_frame):
+                if i == 0:
+                    self.name_list.append('1st')
+                elif i == 1:
+                    self.name_list.append('2nd')
+                elif i == 2:
+                    self.name_list.append('3rd')
+                else:
+                    self.name_list.append(str(i+1)+'th')
+            
 
         self.sigi_obs_list     = [sig_inv_spa @ g_obs.flatten() for g_obs    in self.g_obs_list   ]
         self.sigi_obs_tor_list = [torch.FloatTensor(sigi_obs)   for sigi_obs in self.sigi_obs_list]
@@ -380,6 +398,7 @@ class Reflection_tomography:
         self.T_I21_tor = torch.FloatTensor(self.Ref.T_I2w[1])
         self.mask_w_tor = torch.FloatTensor(~self.ref_mask)
         self.mur_pri_tor = torch.FloatTensor(self.Ref.mur_pri)
+        self.iter:int=0
 
     def calc_f(self,
         f_list   :List[np.ndarray],
@@ -434,7 +453,7 @@ class Reflection_tomography:
         
         Kf_pos_list = []
         f_rmse      = []
-        for i in range(len(f_list)):
+        for i in range(self.n_frame):
 
             f = f_list[i].copy()
                 
@@ -466,13 +485,15 @@ class Reflection_tomography:
                     self.Kernel.append_frame(ax)
 
                 rI,zI = self.Obs.rI,self.Obs.zI 
-                scatter_cbar(axs[0],x=rI,y=zI,c=np.exp(muf_pos),s=10,vmin=0,vmax=vmax)
-                scatter_cbar(axs[1],x=rI,y=zI,c=(np.exp(muf_pos)-f_true),vmax=0.3,vmin=-0.3,cmap='RdBu_r',s=10)
+                scatter_cbar(axs[0],x=rI,y=zI,c=np.exp(muf_pos),s=0.7*1e5*self.Kernel.Lsq_I,vmin=0,vmax=vmax)
+                scatter_cbar(axs[1],x=rI,y=zI,c=(np.exp(muf_pos)-f_true),s=0.7*1e5*self.Kernel.Lsq_I,vmax=0.3,vmin=-0.3,cmap='RdBu_r')
+                axs[0].set_title('f_'+self.name_list[i]+', Iteration: '+str(self.iter))
                 axs[1].set_title('nrmse = '+str(f_rmse[i])[:8])
 
-                scatter_cbar(axs[2],x=rI,y=zI,c=np.exp(muf_pos)*np.sqrt(np.diag(Kf_pos)),vmin=0,vmax=0.03,cmap='BuPu',s=10)
+                scatter_cbar(axs[2],x=rI,y=zI,c=np.exp(muf_pos)*np.sqrt(np.diag(Kf_pos)),s=0.7*1e5*self.Kernel.Lsq_I,vmin=0,vmax=0.03,cmap='BuPu')
                 plt.show()
 
+        self.iter +=1
 
 
         return f_list,Kf_pos_list,f_rmse
@@ -480,6 +501,93 @@ class Reflection_tomography:
     
 
 
+    def calc_r(self,
+        refI       :np.ndarray,
+        f_list     :List[np.ndarray],
+        Kf_now_list:List[np.ndarray],
+        sig_scale  :float =0.01,
+        w          :float=1.0,
+        )->Tuple[np.ndarray,np.ndarray]:
+        N = len(f_list)
+
+        expf_list = [np.exp(f_list[i]+0.5*np.diag(Kf_now_list[i])) for i in range(N)]
+
+        
+        sigiH0f_tor_list = [torch.FloatTensor((self.sigiH0@expf)) for expf in expf_list]
+        sigiH1f_tor_list = [torch.FloatTensor((self.sigiH1@expf)) for expf in expf_list]
+        sigiH2f_tor_list = [torch.FloatTensor((self.sigiH2@expf)) for expf in expf_list]
+        
+        sigiH1f_sigiH0f_sum = sum([sigiH0f_tor_list[i]*sigiH1f_tor_list[i] for i in range(N) ])
+        sigiH1f_sq_sum      = sum([sigiH1f_tor_list[i]*sigiH1f_tor_list[i] for i in range(N) ])
+        sigiobs_sigiH1f_sum = sum([self.sigi_obs_tor_list[i]*sigiH1f_tor_list[i] for i in range(N) ])
+
+        """ ##リスト化に対応してないLL関数
+        def LL_for_r_torch(rI:torch.Tensor):
+            Ref0 = self.mask_w_tor*1/(1+torch.exp(-self.T_I20_tor@rI))
+            term1 = -1/2*torch.sum(2*Ref0*sigiH1f_tor*sigiH0f_tor+Ref0**2*sigiH1f_tor**2)*1.0
+            term2 = torch.sum(Ref0*sigi_obs_tor *sigiH1f_tor)
+            rI= rI-self.mur_pri_tor
+            term3 = -1/2*torch.sum(rI@(self.Kr_II_pri_inv_tor@rI))
+            #return term3
+            return (1/sig_scale**2*(term1+term2)+w**2*term3)
+        """
+        def LL_for_r_torch(rI:torch.Tensor):
+            Ref0 = self.mask_w_tor*1/(1+torch.exp(-self.T_I20_tor@rI))
+            Term1 = -1/2*torch.sum(2*Ref0*sigiH1f_sigiH0f_sum+Ref0**2*sigiH1f_sq_sum )
+            Term2 = torch.sum(Ref0*sigiobs_sigiH1f_sum)
+            rI= rI-self.mur_pri_tor
+            Term3 = -1/2*torch.sum(rI@(self.Kr_II_pri_inv_tor@rI))
+            #return term3
+            return (1/sig_scale**2*(Term1+Term2)+w**2*Term3)
+
+        def Phi(x):
+            x = torch.FloatTensor(x).requires_grad_(False)
+            y = LL_for_r_torch(x)
+            return -y.numpy().astype(np.float64)
+
+
+            
+        def Phi_grad(x: torch.Tensor):
+            x = torch.FloatTensor(x).requires_grad_(True)
+            y = LL_for_r_torch(x)
+            y.backward()
+            return -x.grad.numpy().astype(np.float64)
+        
+        def Phi_hessian(x: torch.Tensor):
+            x = torch.FloatTensor(x).requires_grad_(True)
+            print('calc hessian')
+            return hessian( LL_for_r_torch,x).numpy().astype(np.float64)
+        
+        x = refI
+        res = scipy.optimize.fmin_cg(f=Phi,x0=x,fprime=Phi_grad,full_output=True)
+        refI = res[0]
+        Phi_i= res[1]
+        Kr_pos_inv = -Phi_hessian(refI)
+        lam,V = np.linalg.eigh(Kr_pos_inv)
+        lam[lam<1e-5]= 1e-5
+        Kr_pos = V @ np.diag(1/lam) @ V.T
+        
+        if self.ref_true is not None:    
+            ref_true = self.ref_true
+            fig,axs=plt.subplots(1,3,figsize=(15,5),sharey=True)
+            CI,HI = self.Ref.CI,self.Ref.HI
+            scatter_cbar(axs[0],x=CI,y=HI,c=sigmoid(refI),s=200,vmax=1,vmin=0)
+            
+            scatter_cbar(axs[1],x=CI,y=HI,c=sigmoid(refI)-sigmoid(ref_true),s=200,vmin=-0.5,vmax=0.5,cmap='RdBu_r')
+            
+            r_RMSE = ((sigmoid(refI)-sigmoid(self.ref_true)).std()/sigmoid(self.ref_true).mean())
+            axs[1].set_title('nrmse = '+str(r_RMSE)[:8])
+
+
+            scatter_cbar(axs[2],x=CI,y=HI,c=0.5*(sigmoid(refI+np.sqrt(np.diag(Kr_pos)))-sigmoid(refI-np.sqrt(np.diag(Kr_pos)))),s=200,cmap='BuPu',vmin=0)
+            for ax in axs:
+                ax.set_xlim(ax.get_xlim()[::-1])
+                ax.set_ylim(-0.6,0.6)
+            plt.show()
+
+        return refI,Kr_pos,r_RMSE,Phi_i
+    
+    
     def calc_r(self,
         refI       :np.ndarray,
         f_list     :List[np.ndarray],
