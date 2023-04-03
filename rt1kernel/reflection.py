@@ -349,11 +349,13 @@ class Reflection_tomography:
         f_true_list   :Optional[List[np.ndarray]]=None,
         sig_im        :Optional[np.ndarray]=None,
         ref_mask      :Optional[np.ndarray]=None,
+        n_reflection  :int=1,
         ) :
         self.num_im = len(g_obs_list)
         self.f_true_list = f_true_list 
         self.ref_true = ref_true
         self.n_frame = len(g_obs_list)
+        self.n_reflection = n_reflection
         
         self.g_obs_list = g_obs_list
         g_size = g_obs_list[0].size
@@ -391,8 +393,8 @@ class Reflection_tomography:
 
                 
         self.Kr_II_pri_tor = torch.FloatTensor(self.Ref.Kr_pri)
-        Kr_II_pri_inv = np.linalg.inv(self.Ref.Kr_pri+1e-3*np.eye(self.Ref.NI))
-        self.Kr_II_pri_inv_tor = torch.FloatTensor(Kr_II_pri_inv)
+        self.Kr_II_pri_inv = np.linalg.inv(self.Ref.Kr_pri+1e-3*np.eye(self.Ref.NI))
+        self.Kr_II_pri_inv_tor = torch.FloatTensor(self.Kr_II_pri_inv)
 
         self.T_I20_tor = torch.FloatTensor(self.Ref.T_I2w[0])
         self.T_I21_tor = torch.FloatTensor(self.Ref.T_I2w[1])
@@ -400,34 +402,59 @@ class Reflection_tomography:
         self.mur_pri_tor = torch.FloatTensor(self.Ref.mur_pri)
         self.iter:int=0
 
+        self.T0_tor    = torch.FloatTensor(np.einsum('i,ij->ij',~self.ref_mask,self.Ref.T_I2w[0])) 
+        self.T1_tor    = torch.FloatTensor(np.einsum('i,ij->ij',~self.ref_mask,self.Ref.T_I2w[1])) 
+
     def calc_f(self,
         f_list   :List[np.ndarray],
         refI_now :np.ndarray,
         Kr_now   :np.ndarray,
         sig_scale:float = 0.01,
+        is_plot:bool=True,
         )-> Tuple[List[np.ndarray],List[np.ndarray]]:
         
         ## 本来はsimoidは最後にするのが正しいがそこまで影響は少ないと思われる
         refI_sample = sigmoid(np.random.multivariate_normal(refI_now,Kr_now+1e-3*np.eye(self.Ref.NI),490))
         ref0_sample = self.Ref.T_I2w[0] @refI_sample.T
+        ref1_sample = self.Ref.T_I2w[1] @refI_sample.T
         ##
-        ref0_mean    = ~self.ref_mask* ref0_sample.mean(axis=1)
-        ref0_sq_mean = ~self.ref_mask* (ref0_sample**2).mean(axis=1)
+        ref0_mean    = ~self.ref_mask   *ref0_sample.mean(axis=1)
+        ref0_sq_mean = ~self.ref_mask   *(ref0_sample**2).mean(axis=1)
+
+
+        if self.n_reflection == 1:            
+            Hsig2iH_mean= (self.H0sigi2H0
+                        + self.sigiH1.T @ sparse.diags(ref0_sq_mean) @ self.sigiH1
+                        + (Temp:=self.sigiH0.T @ sparse.diags(ref0_mean) @ self.sigiH1 ) 
+                        +  Temp.T
+                        ).toarray()
             
-        Hsig2iH_mean= (self.H0sigi2H0
-                    + self.sigiH1.T @ sparse.diags(ref0_mean)    @ self.sigiH0 
-                    + self.sigiH0.T @ sparse.diags(ref0_mean)    @ self.sigiH1 
-                    + self.sigiH1.T @ sparse.diags(ref0_sq_mean) @ self.sigiH1
-                    #+ sigiH1.T @ sparse.diags(ref0_sq_mean) @ sigiH1
-                    ).toarray()
+            sigiH_mean = self.sigiH0 + sparse.diags(ref0_mean)    @  self.sigiH1
+        elif self.n_reflection == 2:
+            ref01_mean     = ~self.ref_mask *(ref0_sample*ref1_sample).mean(axis=1)
+            ref0sq1_mean   = ~self.ref_mask *(ref0_sample**2 *ref1_sample).mean(axis=1)
+            ref0sq1sq_mean = ~self.ref_mask *(ref0_sample**2 *ref1_sample**2).mean(axis=1)
+            Hsig2iH_mean= (self.H0sigi2H0
+                        +  self.sigiH1.T @sparse.diags(ref0_sq_mean)   @self.sigiH1
+                        +  self.sigiH2.T @sparse.diags(ref0sq1sq_mean) @self.sigiH2
+                        +  (Temp:=self.sigiH1.T @sparse.diags(ref0_mean)    @self.sigiH0 ) 
+                        +  Temp.T
+                        +  (Temp:=self.sigiH0.T @sparse.diags(ref01_mean)   @self.sigiH2 ) 
+                        +  Temp.T
+                        +  (Temp:=self.sigiH1.T @sparse.diags(ref0sq1_mean) @self.sigiH2 ) 
+                        +  Temp.T
+                        ).toarray()
+            
+            sigiH_mean = self.sigiH0 + sparse.diags(ref0_mean) @self.sigiH1 + sparse.diags(ref01_mean) @self.sigiH2
 
         
-        sigiH_mean = self.sigiH0 + sparse.diags(ref0_mean)    @  self.sigiH1
+        else: return print('n_reflenction is wrong number')
+        
         rI,zI = self.Obs.rI,self.Obs.zI 
             
         def calc_core_fast(
             f:np.ndarray,
-            i:int=0, ##list_index
+            i:int=0, ##list_index,
             ):
             r_f = f - self.muf_pri
             exp_f = np.exp(f)
@@ -453,6 +480,7 @@ class Reflection_tomography:
         
         Kf_pos_list = []
         f_rmse      = []
+        is_plot
         for i in range(self.n_frame):
 
             f = f_list[i].copy()
@@ -472,13 +500,14 @@ class Reflection_tomography:
             muf_pos = f 
             f_list[i] = muf_pos
             Kf_pos_list.append(np.linalg.inv(-DPsi))
+                
+            f_rmse.append((np.exp(muf_pos)-self.f_true_list[i]).std()/self.f_true_list[i].mean())
+
             
-            if self.f_true_list is not None:    
+            if self.f_true_list is not None and is_plot:    
                 f_true = self.f_true_list[i]
                 Kf_pos = Kf_pos_list[i]
                 vmax = f_true.max()*1.1
-                
-                f_rmse.append((np.exp(muf_pos)-self.f_true_list[i]).std()/self.f_true_list[i].mean())
                 fig,axs = plt.subplots(1,3,figsize=(15,5),sharey=True)
                 for ax in axs:
                     ax.set(**rt1_ax_kwargs)
@@ -492,16 +521,14 @@ class Reflection_tomography:
 
                 scatter_cbar(axs[2],x=rI,y=zI,c=np.exp(muf_pos)*np.sqrt(np.diag(Kf_pos)),s=0.7*1e5*self.Kernel.Lsq_I,vmin=0,vmax=0.03,cmap='BuPu')
                 plt.show()
-
+            
+            
         self.iter +=1
 
 
         return f_list,Kf_pos_list,f_rmse
     
-    
-
-
-    def calc_r(self,
+    def calc_r_torch(self,
         refI       :np.ndarray,
         f_list     :List[np.ndarray],
         Kf_now_list:List[np.ndarray],
@@ -533,17 +560,22 @@ class Reflection_tomography:
         """
         def LL_for_r_torch(rI:torch.Tensor):
             Ref0 = self.mask_w_tor*1/(1+torch.exp(-self.T_I20_tor@rI))
-            Term1 = -1/2*torch.sum(2*Ref0*sigiH1f_sigiH0f_sum+Ref0**2*sigiH1f_sq_sum )
-            Term2 = torch.sum(Ref0*sigiobs_sigiH1f_sum)
+            
+            Term_1and2 = -1/2*torch.sum(2*Ref0*(sigiH1f_sigiH0f_sum-sigiobs_sigiH1f_sum)+Ref0**2*sigiH1f_sq_sum )
+            #Term1 = -1/2*torch.sum(2*Ref0*sigiH1f_sigiH0f_sum+Ref0**2*sigiH1f_sq_sum )
+            #Term2 = torch.sum(Ref0*sigiobs_sigiH1f_sum)
             rI= rI-self.mur_pri_tor
             Term3 = -1/2*torch.sum(rI@(self.Kr_II_pri_inv_tor@rI))
             #return term3
-            return (1/sig_scale**2*(Term1+Term2)+w**2*Term3)
+            return (1/sig_scale**2*(Term_1and2)+w**2*Term3)
+
+
+        Phi0 = LL_for_r_torch(torch.zeros(refI.size)).numpy().astype(np.float32)
 
         def Phi(x):
             x = torch.FloatTensor(x).requires_grad_(False)
             y = LL_for_r_torch(x)
-            return -y.numpy().astype(np.float64)
+            return -y.numpy().astype(np.float64)/abs(Phi0)
 
 
             
@@ -551,18 +583,26 @@ class Reflection_tomography:
             x = torch.FloatTensor(x).requires_grad_(True)
             y = LL_for_r_torch(x)
             y.backward()
-            return -x.grad.numpy().astype(np.float64)
+            return -x.grad.numpy().astype(np.float32)/abs(Phi0)
         
         def Phi_hessian(x: torch.Tensor):
             x = torch.FloatTensor(x).requires_grad_(True)
             print('calc hessian')
-            return hessian( LL_for_r_torch,x).numpy().astype(np.float64)
+            return hessian( LL_for_r_torch,x).numpy().astype(np.float32)
         
         x = refI
-        res = scipy.optimize.fmin_cg(f=Phi,x0=x,fprime=Phi_grad,full_output=True)
+        time0 = time.time()
+        res = scipy.optimize.fmin_cg(f=Phi,x0=x.astype(np.float32),fprime=Phi_grad,full_output=True)
+        time1 = time.time()
+        print('takes '+str(time1-time0)+' sec.')
+        print(Phi_grad(res[0]).std())
         refI = res[0]
         Phi_i= res[1]
+        
+        time0 = time.time()
         Kr_pos_inv = -Phi_hessian(refI)
+        time1 = time.time()
+        print('takes '+str(time1-time0)+' sec.')
         lam,V = np.linalg.eigh(Kr_pos_inv)
         lam[lam<1e-5]= 1e-5
         Kr_pos = V @ np.diag(1/lam) @ V.T
@@ -587,8 +627,7 @@ class Reflection_tomography:
 
         return refI,Kr_pos,r_RMSE,Phi_i
     
-    
-    def calc_r(self,
+    def calc_r_torch2(self,
         refI       :np.ndarray,
         f_list     :List[np.ndarray],
         Kf_now_list:List[np.ndarray],
@@ -604,9 +643,15 @@ class Reflection_tomography:
         sigiH1f_tor_list = [torch.FloatTensor((self.sigiH1@expf)) for expf in expf_list]
         sigiH2f_tor_list = [torch.FloatTensor((self.sigiH2@expf)) for expf in expf_list]
         
-        sigiH1f_sigiH0f_sum = sum([sigiH0f_tor_list[i]*sigiH1f_tor_list[i] for i in range(N) ])
+        sigiH0f_sigiH1f_sum = sum([sigiH0f_tor_list[i]*sigiH1f_tor_list[i] for i in range(N) ])
         sigiH1f_sq_sum      = sum([sigiH1f_tor_list[i]*sigiH1f_tor_list[i] for i in range(N) ])
         sigiobs_sigiH1f_sum = sum([self.sigi_obs_tor_list[i]*sigiH1f_tor_list[i] for i in range(N) ])
+
+        if self.n_reflection == 2:    
+            sigiH0f_sigiH2f_sum = sum([sigiH0f_tor_list[i]*sigiH2f_tor_list[i] for i in range(N) ])
+            sigiH1f_sigiH2f_sum = sum([sigiH1f_tor_list[i]*sigiH2f_tor_list[i] for i in range(N) ])
+            sigiH2f_sq_sum      = sum([sigiH2f_tor_list[i]*sigiH2f_tor_list[i] for i in range(N) ])
+            sigiobs_sigiH2f_sum = sum([self.sigi_obs_tor_list[i]*sigiH2f_tor_list[i] for i in range(N) ])
 
         """ ##リスト化に対応してないLL関数
         def LL_for_r_torch(rI:torch.Tensor):
@@ -618,38 +663,194 @@ class Reflection_tomography:
             #return term3
             return (1/sig_scale**2*(term1+term2)+w**2*term3)
         """
-        def LL_for_r_torch(rI:torch.Tensor):
-            Ref0 = self.mask_w_tor*1/(1+torch.exp(-self.T_I20_tor@rI))
-            Term1 = -1/2*torch.sum(2*Ref0*sigiH1f_sigiH0f_sum+Ref0**2*sigiH1f_sq_sum )
-            Term2 = torch.sum(Ref0*sigiobs_sigiH1f_sum)
+        def LL_torch_ref1(rI:torch.Tensor):
+            Ref0 = self.T0_tor @ (1/(1+torch.exp(-rI)))
+            Term_1and2 = -1/2*torch.sum(2*Ref0*(sigiH0f_sigiH1f_sum-sigiobs_sigiH1f_sum)+Ref0**2*sigiH1f_sq_sum )
+
             rI= rI-self.mur_pri_tor
             Term3 = -1/2*torch.sum(rI@(self.Kr_II_pri_inv_tor@rI))
             #return term3
-            return (1/sig_scale**2*(Term1+Term2)+w**2*Term3)
+            return (1/sig_scale**2*(Term_1and2)+w**2*Term3)
+        
+        def  LL_torch_ref2(rI:torch.Tensor):
+            Ref0 = self.T0_tor @ (1/(1+torch.exp(-rI)))
+            Ref1 = self.T1_tor @ (1/(1+torch.exp(-rI)))
+            Term_1and2 = -1/2*torch.sum( 
+                 2*Ref0            *(sigiH0f_sigiH1f_sum-sigiobs_sigiH1f_sum)
+                +2*Ref0    *Ref1   *(sigiH0f_sigiH2f_sum-sigiobs_sigiH2f_sum) 
+                +2*Ref0**2 *Ref1   * sigiH1f_sigiH2f_sum
+                +  Ref0**2          *sigiH1f_sq_sum
+                +  Ref0**2 *Ref1**2 *sigiH2f_sq_sum )
+
+            rI= rI-self.mur_pri_tor
+            Term3 = -1/2*torch.sum(rI@(self.Kr_II_pri_inv_tor@rI))
+            #return term3
+            return (1/sig_scale**2*(Term_1and2)+w**2*Term3)
+                
+        if   self.n_reflection == 1:
+            LL_torch:Callable[[torch.Tensor],torch.Tensor] = LL_torch_ref1
+        elif self.n_reflection ==2 : 
+            LL_torch:Callable[[torch.Tensor],torch.Tensor] = LL_torch_ref2
+        else:
+            return print('something err')
+
+        Phi0 = LL_torch(torch.zeros(refI.size)).numpy().astype(np.float32)
 
         def Phi(x):
             x = torch.FloatTensor(x).requires_grad_(False)
-            y = LL_for_r_torch(x)
-            return -y.numpy().astype(np.float64)
+            y = LL_torch(x)
+            return -y.numpy().astype(np.float64)/abs(Phi0)
 
 
             
         def Phi_grad(x: torch.Tensor):
             x = torch.FloatTensor(x).requires_grad_(True)
-            y = LL_for_r_torch(x)
+            y = LL_torch(x)
             y.backward()
-            return -x.grad.numpy().astype(np.float64)
+            return -x.grad.numpy().astype(np.float32)/abs(Phi0)
         
         def Phi_hessian(x: torch.Tensor):
             x = torch.FloatTensor(x).requires_grad_(True)
             print('calc hessian')
-            return hessian( LL_for_r_torch,x).numpy().astype(np.float64)
+            return hessian( LL_torch,x).numpy().astype(np.float32)
         
         x = refI
-        res = scipy.optimize.fmin_cg(f=Phi,x0=x,fprime=Phi_grad,full_output=True)
+        time0 = time.time()
+        res = scipy.optimize.fmin_cg(f=Phi,x0=x.astype(np.float32),fprime=Phi_grad,full_output=True)
+        time1 = time.time()
+        print('takes '+str(time1-time0)+' sec.')
+        print(Phi_grad(res[0]).std())
         refI = res[0]
         Phi_i= res[1]
+        
+        time0 = time.time()
         Kr_pos_inv = -Phi_hessian(refI)
+        time1 = time.time()
+        print('takes '+str(time1-time0)+' sec.')
+        lam,V = np.linalg.eigh(Kr_pos_inv)
+        lam[lam<1e-5]= 1e-5
+        Kr_pos = V @ np.diag(1/lam) @ V.T
+        
+        if self.ref_true is not None:    
+            ref_true = self.ref_true
+            fig,axs=plt.subplots(1,3,figsize=(15,5),sharey=True)
+            CI,HI = self.Ref.CI,self.Ref.HI
+            scatter_cbar(axs[0],x=CI,y=HI,c=sigmoid(refI),s=200,vmax=1,vmin=0)
+            
+            scatter_cbar(axs[1],x=CI,y=HI,c=sigmoid(refI)-sigmoid(ref_true),s=200,vmin=-0.5,vmax=0.5,cmap='RdBu_r')
+            
+            r_RMSE = (sigmoid(refI)-sigmoid(self.ref_true)).std()
+            axs[1].set_title('nrmse = '+str(r_RMSE)[:8])
+
+
+            scatter_cbar(axs[2],x=CI,y=HI,c=0.5*(sigmoid(refI+np.sqrt(np.diag(Kr_pos)))-sigmoid(refI-np.sqrt(np.diag(Kr_pos)))),s=200,cmap='BuPu',vmin=0)
+            for ax in axs:
+                ax.set_xlim(ax.get_xlim()[::-1])
+                ax.set_ylim(-0.6,0.6)
+            plt.show()
+
+        return refI,Kr_pos,r_RMSE,Phi_i
+    
+    
+    
+    def calc_r2(self,
+        refI       :np.ndarray,
+        f_list     :List[np.ndarray],
+        Kf_now_list:List[np.ndarray],
+        sig_scale  :float =0.01,
+        w          :float=1.0,
+        )->Tuple[np.ndarray,np.ndarray]:
+        N = len(f_list)
+
+        expf_list = [np.exp(f_list[i]+0.5*np.diag(Kf_now_list[i])) for i in range(N)]
+
+        
+        sigiH0f_list = [ self.sigiH0@expf for expf in expf_list]
+        sigiH1f_list = [ self.sigiH1@expf for expf in expf_list]
+        sigiH2f_list = [ self.sigiH2@expf for expf in expf_list]
+        
+        sigiH1f_sigiH0f_sum = sum([sigiH0f_list[i]*sigiH1f_list[i] for i in range(N) ])
+        sigiH1f_sq_sum      = sum([sigiH1f_list[i]*sigiH1f_list[i] for i in range(N) ])
+        sigiobs_sigiH1f_sum = sum([self.sigi_obs_list[i]*sigiH1f_list[i] for i in range(N) ])
+        mu_pri = (self.mur_pri_tor).numpy().astype(np.float64)
+
+        T0    = np.einsum('i,ij->ij',~self.ref_mask,self.Ref.T_I2w[0]) 
+        T1    = np.einsum('i,ij->ij',~self.ref_mask,self.Ref.T_I2w[1]) 
+
+        def LL(rI):
+            sI    = sigmoid(rI)
+            Ref0  = T0 @ sI
+            g_for_ref0   = -1/2*2*(sigiH1f_sigiH0f_sum-sigiobs_sigiH1f_sum)
+            g_for_ref0sq = -1/2  *(sigiH1f_sq_sum)
+
+            Term_1and2  = np.sum(Ref0*g_for_ref0 +Ref0**2 * g_for_ref0sq)
+            rI= rI-mu_pri
+            Term3 = -1/2*np.sum(rI@(self.Kr_II_pri_inv@rI))
+            #return term3
+            return (1/sig_scale**2*(Term_1and2)+w**2*Term3)   
+        
+        def LL_grad(rI):
+            sI    = sigmoid(rI)
+            R0  = T0 @ sI
+
+            g_for_ref0   = -1/2*2*(sigiH1f_sigiH0f_sum-sigiobs_sigiH1f_sum)
+            g_for_ref0sq = -1/2  *(sigiH1f_sq_sum)
+
+            Term_1and2_grad = (sI-sI**2) * (T0.T @ (g_for_ref0 + 2*R0*g_for_ref0sq))
+            
+            rI= rI-mu_pri
+            Term3_grad = -self.Kr_II_pri_inv@rI
+            return (1/sig_scale**2*(Term_1and2_grad)+w**2*Term3_grad)   
+        
+        
+        def LL_hessian(rI):
+            sI    = sigmoid(rI)
+            R0  = T0 @ sI
+
+            g_for_ref0   = -1/2*2*(sigiH1f_sigiH0f_sum-sigiobs_sigiH1f_sum)
+            g_for_ref0sq = -1/2  *(sigiH1f_sq_sum)
+
+            Term_1and2_hess = np.diag((2*sI**3-3*sI**2+sI)*(T0.T @ g_for_ref0))
+
+            gA = np.einsum('i,ij->ij'  ,g_for_ref0sq,T0)
+            AgA =T0.T @ gA
+            sisi = np.einsum('i,j->ij', sI-sI**2, sI-sI**2)
+            Term_1and2_hess += 2*AgA*sisi + 2* np.diag((2*sI**3-3*sI**2+sI)*(T0.T @ (R0*g_for_ref0sq)))
+            Term3_hess =  -self.Kr_II_pri_inv
+            return (1/sig_scale**2*(Term_1and2_hess)+w**2*Term3_hess)   
+        
+
+
+
+        Phi0 = LL(refI*0)
+        def Phi(x):
+            y = LL(x)
+            return -y/abs(Phi0)
+            
+        def Phi_grad(x):
+            y = LL_grad(x)
+            return -y/abs(Phi0)
+        
+        
+        def Phi_grad(x):
+            y = LL_grad(x)
+            return -y/abs(Phi0)
+
+        x = refI
+        time0 = time.time()
+        res = scipy.optimize.fmin_cg(f=Phi,x0=x,fprime=Phi_grad,full_output=True)
+        time1 = time.time()
+        print('takes '+str(time1-time0)+' sec.')
+        print(Phi_grad(res[0]).std())
+        refI = res[0]
+        Phi_i= res[1]
+        
+        time0 = time.time()
+        Kr_pos_inv = -LL_hessian(refI)
+        time1 = time.time()
+        print('takes '+str(time1-time0)+' sec.')
+
+
         lam,V = np.linalg.eigh(Kr_pos_inv)
         lam[lam<1e-5]= 1e-5
         Kr_pos = V @ np.diag(1/lam) @ V.T
