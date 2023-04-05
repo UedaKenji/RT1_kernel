@@ -6,11 +6,11 @@ from typing import Optional, Union,Tuple,Callable,List
 import time 
 import math
 from tqdm import tqdm
-import scipy.linalg as linalg
 from numba import jit
 import warnings
 from dataclasses import dataclass
 import itertools
+import scipy.linalg as linalg
 import scipy.sparse as sparse
 import scipy.optimize
 import pandas as pd
@@ -184,8 +184,8 @@ class Diffusion_kernel:
         Obs: rt1kernel.Observation_Matrix_integral,
         zIb: np.ndarray,
         frame:rt1plotpy.frame.Frame,
-        length_sacle_sq_I:np.ndarray
-        ) -> None:
+        length_sacle_sq_I:np.ndarray,
+        ) -> np.ndarray:
 
         #########この部分は，RT-1の形に極めて依存########################
         is_wall_outer =  Obs.Hs[0].ray.R1 >0.55
@@ -195,11 +195,11 @@ class Diffusion_kernel:
         bnum_set = Obs.Hs[0].ray.ref_num[is_wall_outer]
         #################################
         
-        self.zIb = zIb
-        NrI = np.zeros_like(self.zIb) 
-        NzI = np.zeros_like(self.zIb) 
-        rIb   = np.zeros_like(self.zIb) 
-        for i,zIb_i in enumerate(self.zIb):
+        zIb = zIb
+        NrI = np.zeros_like(zIb) 
+        NzI = np.zeros_like(zIb) 
+        rIb   = np.zeros_like(zIb) 
+        for i,zIb_i in enumerate(zIb):
             index = np.argmin(abs(zb_set-zIb_i))
             rIb_i = rb_set[index]
             ref_num = bnum_set[index]
@@ -213,8 +213,8 @@ class Diffusion_kernel:
         fig,ax =plt.subplots(figsize=(6,6))
 
         rt1_ax_kwargs = {'xlim'  :(0,1.1),
-                 'ylim'  :(-0.7,0.7), 
-                 'aspect': 'equal'
+                    'ylim'  :(-0.7,0.7), 
+                    'aspect': 'equal'
                 }                
         ax.set(**rt1_ax_kwargs)
         frame.append_frame(ax,label=True)
@@ -224,104 +224,62 @@ class Diffusion_kernel:
         ax.quiver(rIb,zIb,NrI,NzI,)
         Ls_I = length_sacle_sq_I
         plt.scatter(Obs.rI,Obs.zI,s=Ls_I*100000,alpha=0.5)
+        plt.show()
+        
+        ######################
+        theta_max = np.pi*0.6
+        n = 200
+        ######################
+        
+        theta = np.linspace(0,theta_max,n,endpoint=False) 
+        dtheta = theta[1]-theta[0]
+        i,j = 0,0
 
+        nI = Obs.shape[2]
+        rI,zI = Obs.rI,Obs.zI
+        H_diffusion = np.zeros((zIb.size,nI))
 
-        pass
+        for i in range(zIb.size):
+            for j in range(nI):
+                l_z = zIb[i] - zI[j]
+                l_x = rIb[i]    - rI[j]*np.cos(theta)
+                l_y = -rI[j] * np.sin(theta)
 
-    def __SEKer_z(z1,z2,z_len):
+                l_sq = l_z**2 + l_x**2 + l_y**2
+
+                drtheta = np.pi*rI[j]*dtheta
+
+                cos = (NzI[i]*l_z+NrI[i]*l_x)/np.sqrt(l_sq)
+                H_diffusion[i,j]=np.sum(abs(drtheta*Ls_I[j]*cos/l_sq))
+                """
+                if (i==10) *( j == 1000):
+                    print(i,j)
+                    plt.plot(cos)
+                    plt.show()
+                """
+
+        Z_all_0 = Obs.Hs[1].ray.Z0.copy()
+
+        Z_all_0[Z_all_0> zIb.max()] = zIb.max()
+        Z_all_0[Z_all_0< zIb.min()] = zIb.min()
+        Kzdif_II  = self.__SEKer_z(z1=zIb,     z2=zIb, z_len=0.1)
+        Kzdif_z0I = self.__SEKer_z(z1=Z_all_0, z2=zIb, z_len=0.1)
+
+        Kzdif_II_inv =np.linalg.inv(Kzdif_II+1e-5*np.eye(zIb.size)) 
+        self.Interp       =Kzdif_z0I @Kzdif_II_inv
+        self.H_diff_I =H_diffusion
+
+    def __matmul__(self,
+        f:np.ndarray)->np.ndarray:
+        return self.Interp @ (self.H_diff_I @ f)
+
+    def __SEKer_z(self,z1,z2,z_len):
         z1 = z1.flatten()
         z2 = z2.flatten()
         Z  = np.meshgrid(z1,z2,indexing='ij') 
         return np.exp(-0.5*(Z[0]-Z[1])**2/z_len**2)
 
 
-def H_diffusion_func(
-        Obs: rt1kernel.Observation_Matrix_integral,
-        zIb: np.ndarray,
-        frame:rt1plotpy.frame.Frame,
-        length_sacle_sq_I:np.ndarray,
-    ) -> None:
-
-    #########この部分は，RT-1の形に極めて依存########################
-    is_wall_outer =  Obs.Hs[0].ray.R1 >0.55
-    rb_set = Obs.Hs[0].ray.R1[is_wall_outer]  
-    zb_set = Obs.Hs[0].ray.Z1[is_wall_outer]
-    btype_set = Obs.Hs[0].ray.ref_type[is_wall_outer]
-    bnum_set = Obs.Hs[0].ray.ref_num[is_wall_outer]
-    #################################
-    
-    zIb = zIb
-    NrI = np.zeros_like(zIb) 
-    NzI = np.zeros_like(zIb) 
-    rIb   = np.zeros_like(zIb) 
-    for i,zIb_i in enumerate(zIb):
-        index = np.argmin(abs(zb_set-zIb_i))
-        rIb_i = rb_set[index]
-        ref_num = bnum_set[index]
-        ref_type = btype_set[index]
-        nr,nz = frame.normal_vector(r=rIb_i,z=zIb_i,frame_type=ref_type,frame_num=ref_num)
-        NrI[i] = nr
-        NzI[i] = nz
-        rIb[i] = rIb_i
-
-            
-    fig,ax =plt.subplots(figsize=(6,6))
-
-    rt1_ax_kwargs = {'xlim'  :(0,1.1),
-                'ylim'  :(-0.7,0.7), 
-                'aspect': 'equal'
-            }                
-    ax.set(**rt1_ax_kwargs)
-    frame.append_frame(ax,label=True)
-    ax.scatter(x=rIb,
-                y=zIb,) 
-
-    ax.quiver(rIb,zIb,NrI,NzI,)
-    Ls_I = length_sacle_sq_I
-    plt.scatter(Obs.rI,Obs.zI,s=Ls_I*100000,alpha=0.5)
-    plt.show()
-    
-    ######################
-    theta_max = np.pi*0.6
-    n = 200
-    ######################
-    
-    theta = np.linspace(0,theta_max,n,endpoint=False) 
-    dtheta = theta[1]-theta[0]
-    i,j = 0,0
-
-    nI = Obs.shape[2]
-    rI,zI = Obs.rI,Obs.zI
-    H_diffusion = np.zeros((zIb.size,nI))
-
-    for i in range(zIb.size):
-        for j in range(nI):
-            l_z = zIb[i] - zI[j]
-            l_x = rIb[i]    - rI[j]*np.cos(theta)
-            l_y = -rI[j] * np.sin(theta)
-
-            l_sq = l_z**2 + l_x**2 + l_y**2
-
-            drtheta = np.pi*rI[j]*dtheta
-
-            cos = (NzI[i]*l_z+NrI[i]*l_x)/np.sqrt(l_sq)
-            H_diffusion[i,j]=np.sum(abs(drtheta*Ls_I[j]*cos/l_sq))
-            """
-            if (i==10) *( j == 1000):
-                print(i,j)
-                plt.plot(cos)
-                plt.show()
-            """
-
-    Z_all_0 = Obs.Hs[1].ray.Z0.copy()
-
-    Z_all_0[Z_all_0> zIb.max()] = zIb.max()
-    Z_all_0[Z_all_0< zIb.min()] = zIb.min()
-    Kzdif_II = SEKer_z(zIb,zIb,z_len=0.1)
-    Kzdif_z0I = SEKer_z(Z_all_0,zIb,z_len=0.1)
-
-    Kzdif_II_inv =np.linalg.inv(Kzdif_II+1e-5*np.eye(zIb.size)) 
-    return Kzdif_z0I @Kzdif_II_inv@ H_diffusion
 
 
 class Reflection_tomography:
@@ -405,49 +363,86 @@ class Reflection_tomography:
         self.T0_tor    = torch.FloatTensor(np.einsum('i,ij->ij',~self.ref_mask,self.Ref.T_I2w[0])) 
         self.T1_tor    = torch.FloatTensor(np.einsum('i,ij->ij',~self.ref_mask,self.Ref.T_I2w[1])) 
 
+        self.enable_diffusion = False
+        if self.H_diff is not None: 
+            self.enable_diffusion = True
+            self.msigi_Interp_diff =  np.einsum('i,ij->ij',~self.ref_mask,sig_inv_spa @ self.H_diff.Interp)
+            self.H_diff_I = self.H_diff.H_diff_I
+            self.Hdsigi2Hd = self.H_diff.H_diff_I.T @ (self.msigi_Interp_diff.T@self.msigi_Interp_diff) @ self.H_diff_I
+
     def calc_f(self,
         f_list   :List[np.ndarray],
         refI_now :np.ndarray,
         Kr_now   :np.ndarray,
         sig_scale:float = 0.01,
         is_plot:bool=True,
+        alpha_d :Optional[float]=None,
         )-> Tuple[List[np.ndarray],List[np.ndarray]]:
         
         ## 本来はsimoidは最後にするのが正しいがそこまで影響は少ないと思われる
-        refI_sample = sigmoid(np.random.multivariate_normal(refI_now,Kr_now+1e-3*np.eye(self.Ref.NI),490))
-        ref0_sample = self.Ref.T_I2w[0] @refI_sample.T
-        ref1_sample = self.Ref.T_I2w[1] @refI_sample.T
+        sgmI_sample = sigmoid(np.random.multivariate_normal(refI_now,Kr_now+1e-3*np.eye(self.Ref.NI),490))
+        ref0_sample = self.Ref.T_I2w[0] @sgmI_sample.T
+        ref1_sample = self.Ref.T_I2w[1] @sgmI_sample.T
         ##
-        ref0_mean    = ~self.ref_mask   *ref0_sample.mean(axis=1)
-        ref0_sq_mean = ~self.ref_mask   *(ref0_sample**2).mean(axis=1)
+        ref0_mean_sp    = sparse.diags(~self.ref_mask   *(ref0_sample   ).mean(axis=1))
+        ref0_sq_mean_sp = sparse.diags(~self.ref_mask   *(ref0_sample**2).mean(axis=1))
 
 
-        if self.n_reflection == 1:            
+        if self.n_reflection == 1:     
+            Mat0 =  self.sigiH0.T @ (ref0_mean_sp @ self.sigiH1) #  sparse.diags @ A is 4 times faster than A @ sparse.diags 
             Hsig2iH_mean= (self.H0sigi2H0
-                        + self.sigiH1.T @ sparse.diags(ref0_sq_mean) @ self.sigiH1
-                        + (Temp:=self.sigiH0.T @ sparse.diags(ref0_mean) @ self.sigiH1 ) 
-                        +  Temp.T
+                        + self.sigiH1.T @(ref0_sq_mean_sp @self.sigiH1)
+                        + Mat0  
+                        + Mat0.T
                         ).toarray()
             
-            sigiH_mean = self.sigiH0 + sparse.diags(ref0_mean)    @  self.sigiH1
+            del Mat0
+            sigiH_mean = self.sigiH0 + ref0_mean_sp @self.sigiH1 
+            if alpha_d is not None:
+                Mat0 = alpha_d**2 *self.Hdsigi2Hd
+
+                Mat1 = (alpha_d  *(self.sigiH0.T @self.msigi_Interp_diff) 
+                       +alpha_d  *(self.sigiH1.T @(ref0_mean_sp @self.msigi_Interp_diff))
+                       ) @ self.H_diff.H_diff_I 
+                
+                Hsig2iH_mean += Mat0 +Mat1 +Mat1.T
+
+                print((Mat0 +Mat1 +Mat1.T).shape)
+                sigiH_mean += alpha_d *( self.msigi_Interp_diff @self.H_diff.H_diff_I )
+            sigiH_mean = np.array(sigiH_mean)
+            
+
         elif self.n_reflection == 2:
-            ref01_mean     = ~self.ref_mask *(ref0_sample*ref1_sample).mean(axis=1)
-            ref0sq1_mean   = ~self.ref_mask *(ref0_sample**2 *ref1_sample).mean(axis=1)
-            ref0sq1sq_mean = ~self.ref_mask *(ref0_sample**2 *ref1_sample**2).mean(axis=1)
-            Hsig2iH_mean= (self.H0sigi2H0
-                        +  self.sigiH1.T @sparse.diags(ref0_sq_mean)   @self.sigiH1
-                        +  self.sigiH2.T @sparse.diags(ref0sq1sq_mean) @self.sigiH2
-                        +  (Temp:=self.sigiH1.T @sparse.diags(ref0_mean)    @self.sigiH0 ) 
-                        +  Temp.T
-                        +  (Temp:=self.sigiH0.T @sparse.diags(ref01_mean)   @self.sigiH2 ) 
-                        +  Temp.T
-                        +  (Temp:=self.sigiH1.T @sparse.diags(ref0sq1_mean) @self.sigiH2 ) 
-                        +  Temp.T
-                        ).toarray()
-            
-            sigiH_mean = self.sigiH0 + sparse.diags(ref0_mean) @self.sigiH1 + sparse.diags(ref01_mean) @self.sigiH2
 
-        
+            ref01_mean_sp     = sparse.diags(~self.ref_mask *(ref0_sample    *ref1_sample   ).mean(axis=1))
+            ref0sq1_mean_sp   = sparse.diags(~self.ref_mask *(ref0_sample**2 *ref1_sample   ).mean(axis=1))
+            ref0sq1sq_mean_sp = sparse.diags(~self.ref_mask *(ref0_sample**2 *ref1_sample**2).mean(axis=1))
+            Mat0 = self.sigiH1.T @( ref0_mean_sp    @self.sigiH0 )
+            Mat1 = self.sigiH0.T @( ref01_mean_sp   @self.sigiH2 )
+            Mat2 = self.sigiH1.T @( ref0sq1_mean_sp @self.sigiH2 )
+            Hsig2iH_mean= (self.H0sigi2H0
+                        +  self.sigiH1.T @( ref0_sq_mean_sp   @self.sigiH1 )
+                        +  self.sigiH2.T @( ref0sq1sq_mean_sp @self.sigiH2 )
+                        +  Mat0 +Mat0.T +Mat1 +Mat1.T +Mat2 +Mat2.T
+                        ).toarray()
+            del Mat0,Mat1,Mat2
+            sigiH_mean = self.sigiH0 + ref0_mean_sp @self.sigiH1 + ref01_mean_sp @self.sigiH2
+
+
+            if alpha_d is not None:
+                Mat0 = (alpha_d**2) *self.Hdsigi2Hd
+
+                Mat1 = (alpha_d  *(self.sigiH0.T @self.msigi_Interp_diff) 
+                       +alpha_d  *(self.sigiH1.T @(ref0_mean_sp  @self.msigi_Interp_diff))
+                       +alpha_d  *(self.sigiH2.T @(ref01_mean_sp @self.msigi_Interp_diff))
+                       ) @ self.H_diff.H_diff_I 
+                
+                Hsig2iH_mean += Mat0 +Mat1 +Mat1.T
+
+
+                sigiH_mean   += alpha_d *( self.msigi_Interp_diff @self.H_diff_I )
+            sigiH_mean = np.array(sigiH_mean)
+
         else: return print('n_reflenction is wrong number')
         
         rI,zI = self.Obs.rI,self.Obs.zI 
@@ -460,7 +455,6 @@ class Reflection_tomography:
             exp_f = np.exp(f)
             fxf = np.einsum('i,j->ij',exp_f,exp_f)
             
-
             c1 = 1/sig_scale**2 *(Hsig2iH_mean  @ exp_f-sigiH_mean.T @ self.sigi_obs_list[i]) * exp_f 
             C1 = 1/sig_scale**2 *Hsig2iH_mean * fxf 
 
@@ -633,13 +627,18 @@ class Reflection_tomography:
         Kf_now_list:List[np.ndarray],
         sig_scale  :float =0.01,
         w          :float=1.0,
+        alpha_d    :Optional[float]=None,
         )->Tuple[np.ndarray,np.ndarray]:
         N = len(f_list)
 
         expf_list = [np.exp(f_list[i]+0.5*np.diag(Kf_now_list[i])) for i in range(N)]
 
-        
-        sigiH0f_tor_list = [torch.FloatTensor((self.sigiH0@expf)) for expf in expf_list]
+        if alpha_d is not None:
+            sigiH0f_tor_list = [torch.FloatTensor((self.sigiH0 @expf)) for expf in expf_list]
+        else:
+            sigiHsum = self.sigiH0+alpha_d*(self.msigi_Interp_diff@self.H_diff_I)
+            sigiH0f_tor_list = [torch.FloatTensor((sigiHsum @expf)) for expf in expf_list]
+
         sigiH1f_tor_list = [torch.FloatTensor((self.sigiH1@expf)) for expf in expf_list]
         sigiH2f_tor_list = [torch.FloatTensor((self.sigiH2@expf)) for expf in expf_list]
         
@@ -751,8 +750,34 @@ class Reflection_tomography:
 
         return refI,Kr_pos,r_RMSE,Phi_i
     
-    
-    
+    def calc_diffusion(self,
+        f_list      :List[np.ndarray],
+        refI    :np.ndarray,
+        ): 
+        sgmI = sigmoid(refI)
+        ref0 = self.Ref.T_I2w[0] @sgmI
+        ref1 = self.Ref.T_I2w[1] @sgmI
+
+        temp1,temp2 = 0,0 
+        for i,f in enumerate(f_list):
+            expf = np.exp(f)
+            sigiHd_exp = self.msigi_Interp_diff @ (self.H_diff.H_diff_I @expf)
+            prj = self.sigiH0 @ expf + ref0 *(self.sigiH1 @expf) + ref0*ref1*(self.sigiH2 @expf) 
+            #cm = plt.imshow(prj.reshape(200,200))
+            #plt.colorbar(cm)
+            #plt.show()
+            temp1 += np.sum((self.sigi_obs_list[i]-prj)*sigiHd_exp)
+            temp2 += np.sum(sigiHd_exp**2)
+            #print(i,temp1,temp2)
+
+        alpha_d = temp1/temp2  
+
+        print('coef of diffusion is '+str(alpha_d))
+
+        if alpha_d < 0 : alpha_d=0
+
+        return alpha_d 
+
     def calc_r2(self,
         refI       :np.ndarray,
         f_list     :List[np.ndarray],
@@ -915,7 +940,7 @@ class Reflection_tomography:
             return print('err in projection')
         
         if self.H_diff is not None:
-            g = g+ diffusion_coef* (self.H_diff@f).reshape(*self.im_shape)
+            g = g+ ~ref_mask.reshape(*self.im_shape) *diffusion_coef*(self.H_diff@f).reshape(*self.im_shape)
         
         return g
 
