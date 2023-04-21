@@ -308,6 +308,7 @@ class Reflection_tomography:
         sig_im        :Optional[np.ndarray]=None,
         ref_mask      :Optional[np.ndarray]=None,
         n_reflection  :int=1,
+        alpha_d_fix   :Optional[float] = None,
         ) :
         self.num_im = len(g_obs_list)
         self.f_true_list = f_true_list 
@@ -398,7 +399,7 @@ class Reflection_tomography:
             
             del Mat0
             sigiH_mean = self.sigiH0 + ref0_mean_sp @self.sigiH1 
-            if alpha_d is not None:
+            if alpha_d is None:
                 Mat0 = alpha_d**2 *self.Hdsigi2Hd
 
                 Mat1 = (alpha_d  *(self.sigiH0.T @self.msigi_Interp_diff) 
@@ -441,7 +442,9 @@ class Reflection_tomography:
 
 
                 sigiH_mean   += alpha_d *( self.msigi_Interp_diff @self.H_diff_I )
-            sigiH_mean = np.array(sigiH_mean)
+            
+            if type(sigiH_mean) is not np.ndarray:
+                sigiH_mean = sigiH_mean.toarray()
 
         else: return print('n_reflenction is wrong number')
         
@@ -454,6 +457,7 @@ class Reflection_tomography:
             r_f = f - self.muf_pri
             exp_f = np.exp(f)
             fxf = np.einsum('i,j->ij',exp_f,exp_f)
+
             
             c1 = 1/sig_scale**2 *(Hsig2iH_mean  @ exp_f-sigiH_mean.T @ self.sigi_obs_list[i]) * exp_f 
             C1 = 1/sig_scale**2 *Hsig2iH_mean * fxf 
@@ -529,12 +533,13 @@ class Reflection_tomography:
         sig_scale  :float =0.01,
         w          :float=1.0,
         alpha_d    :Optional[float]=None,
+        is_hessian :bool=True
         )->Tuple[np.ndarray,np.ndarray]:
         N = len(f_list)
 
         expf_list = [np.exp(f_list[i]+0.5*np.diag(Kf_now_list[i])) for i in range(N)]
 
-        if alpha_d is not None:
+        if alpha_d is None:
             sigiH0f_tor_list = [torch.FloatTensor((self.sigiH0 @expf)) for expf in expf_list]
         else:
             sigiHsum = self.sigiH0+alpha_d*(self.msigi_Interp_diff@self.H_diff_I)
@@ -622,6 +627,10 @@ class Reflection_tomography:
         print(Phi_grad(res[0]).std())
         refI = res[0]
         Phi_i= res[1]
+
+        if not is_hessian:
+            return refI,Phi_i
+
         
         time0 = time.time()
         Kr_pos_inv = -Phi_hessian(refI)
@@ -654,6 +663,8 @@ class Reflection_tomography:
     def calc_diffusion(self,
         f_list      :List[np.ndarray],
         refI    :np.ndarray,
+        para :float = 1,
+        alpha_bk :float = None 
         ): 
         sgmI = sigmoid(refI)
         ref0 = self.Ref.T_I2w[0] @sgmI
@@ -664,6 +675,46 @@ class Reflection_tomography:
             expf = np.exp(f)
             sigiHd_exp = self.msigi_Interp_diff @ (self.H_diff.H_diff_I @expf)
             prj = self.sigiH0 @ expf + ref0 *(self.sigiH1 @expf) + ref0*ref1*(self.sigiH2 @expf) 
+            #cm = plt.imshow(prj.reshape(200,200))
+            #plt.colorbar(cm)
+            #plt.show()
+            temp1 += np.sum((self.sigi_obs_list[i]-prj)*sigiHd_exp)
+            temp2 += np.sum(sigiHd_exp**2)
+            #print(i,temp1,temp2)
+
+        alpha_d = temp1/temp2  
+
+        print('coef of diffusion is '+str(alpha_d))
+
+        if alpha_bk is not None:
+            d_alpha = alpha_d -alpha_bk
+            alpha_d = para*d_alpha + alpha_bk
+
+        if alpha_d < 0 : alpha_d=0
+
+
+        return alpha_d 
+    
+    def calc_diffusion2(self,
+        f_list      :List[np.ndarray],
+        Kf_now_list:List[np.ndarray],
+        refI    :np.ndarray,
+        Kr_now  :np.ndarray,
+
+        ): 
+        N = len(f_list)
+        sgmI_sample = sigmoid(np.random.multivariate_normal(refI,Kr_now+1e-3*np.eye(self.Ref.NI),490))
+        ref0_sample = self.Ref.T_I2w[0] @sgmI_sample.T
+        ref1_sample = self.Ref.T_I2w[1] @sgmI_sample.T
+        ##
+        ref0_mean_sp  = sparse.diags(~self.ref_mask   *(ref0_sample   ).mean(axis=1))
+        ref01_mean_sp = sparse.diags(~self.ref_mask   *(ref0_sample*ref1_sample).mean(axis=1))
+        expf_list = [np.exp(f_list[i]+0.5*np.diag(Kf_now_list[i])) for i in range(N)]
+        temp1,temp2 = 0,0 
+        for i in range(N):
+            expf = expf_list[i]
+            sigiHd_exp = self.msigi_Interp_diff @ (self.H_diff.H_diff_I @expf)
+            prj = self.sigiH0 @ expf + ref0_mean_sp @ (self.sigiH1 @expf) + ref01_mean_sp@(self.sigiH2 @expf) 
             #cm = plt.imshow(prj.reshape(200,200))
             #plt.colorbar(cm)
             #plt.show()

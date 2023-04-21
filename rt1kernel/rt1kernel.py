@@ -474,6 +474,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         self.nI = rI.size
         self.nb = rb.size
         self.length_scale_sq: Callable[[float,float],float] = length_sq_fuction 
+        self.Lsq_I = self.length_scale_sq(self.rI,self.zI) 
         if is_plot:
             fig,ax = plt.subplots(1,2,figsize=(10,5))
             ax_kwargs = {'xlim'  :(0,1.1),
@@ -580,6 +581,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         self.zI, self.rI = zI, rI
         self.nI = rI.size
         self.length_scale_sq: Callable[[float,float],float] = length_sq_fuction 
+        self.Lsq_I = self.length_scale_sq(self.rI,self.zI) 
     
     def length_scale(self,r,z):
         return np.sqrt(self.length_scale_sq(r,z))
@@ -601,7 +603,6 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         Z_medium,R_medium  = np.meshgrid(z_medium, r_medium, indexing='ij')
         lm = self.length_scale(R_medium.flatten(), Z_medium.flatten())
         lm = np.nan_to_num(lm,nan=1)
-        self.Lsq_I = self.length_scale_sq(self.rI,self.zI) 
 
         if add_bound:
             self.add_bound=True
