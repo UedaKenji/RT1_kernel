@@ -132,4 +132,5 @@ dmypy.json
 test_reflection/* 
 #test_reflectionのフォルダを無視 
 test_forward/*   
-test_local/*
+test_local/*   
+test_av_tomography/*
