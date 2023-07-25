@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy import FPE_DIVIDEBYZERO, array, linalg, ndarray
 import rt1plotpy
-from typing import Optional, Union,Tuple,Callable,List
+from typing import Optional, Union,Tuple,Callable,List,TypeAlias
 import time 
 import math
 from tqdm import tqdm
@@ -12,7 +12,7 @@ from numba import jit
 import warnings
 from dataclasses import dataclass
 import itertools
-import scipy.sparse as sparse
+import scipy.sparse as sps
 import pandas as pd
 import os,sys
 from .plot_utils import *  
@@ -21,9 +21,28 @@ import rt1kernel
 
 sys.path.insert(0,os.pardir)
 import rt1raytrace
+import sparse_dot_mkl
+
+
+
+__all__ = ['GPT_av_ver2', 
+           'GPT_av', 
+           'GPT_log']
+
+
+csr  = sps.csr_matrix
+
+
+def csr_cos(A ,Exist)->csr:
+    """
+ 
+    """
+    data = np.array( np.cos(A[Exist==True]) ).flatten() # type: ignore
+    return sps.csr_array( (data, Exist.indices, Exist.indptr),shape=Exist.shape)
 
 __all__ = []
 
+"""
 class GPT_av:
     def __init__(self,
         Obs: rt1kernel.Observation_Matrix_integral,
@@ -39,8 +58,8 @@ class GPT_av:
     def set_kernel(self,
         K_a :np.ndarray,
         K_v :np.ndarray,
-        a_pri:np.ndarray = 0,
-        v_pri:np.ndarray = 0,
+        a_pri:np.ndarray |float = 0,
+        v_pri:np.ndarray |float = 0,
         regularization:float = 1e-5,
         ):
         K_a += regularization*np.eye(self.nI)
@@ -71,9 +90,9 @@ class GPT_av:
         Dcos = self.Obs.Hs[num].Dcos
         H    = self.Obs.Hs[num].H
 
-        self.sigiH   : sparse.csr_matrix =  sparse.diags(self.sig_inv) @ H  
-        self.sigiHT  :sparse.csr_matrix = self.sigiH.multiply(Dcos) 
-        self.sigiHT2 :sparse.csr_matrix = self.sigiHT.multiply(Dcos)
+        self.sigiH   :sps.csr_matrix =  sps.diags(self.sig_inv) @ H  
+        self.sigiHT  :sps.csr_matrix = self.sigiH.multiply(Dcos)  # type: ignore
+        self.sigiHT2 :sps.csr_matrix = self.sigiHT.multiply(Dcos)
         self.SiA = self.sig_inv*(A_cos + A_sin*1.j)
         
     def set_sig2(self,
@@ -91,9 +110,9 @@ class GPT_av:
         #Dcos  = 1.j*self.Obs.Hs[num].Exist
         H    = self.Obs.Hs[num].H
 
-        self.sigiH   : sparse.csr_matrix =  sparse.diags(self.sig_inv) @ H  
-        self.sigiHT  :sparse.csr_matrix = self.sigiH.multiply(Dcos) 
-        self.sigiHT2 :sparse.csr_matrix = self.sigiHT.multiply(Dcos)
+        self.sigiH =  sps.csr_matrix( sps.diags(self.sig_inv) @ H )
+        self.sigiHT  :sps.csr_matrix = self.sigiH.multiply(Dcos) 
+        self.sigiHT2 :sps.csr_matrix = self.sigiHT.multiply(Dcos)
         self.SiA = self.sig_inv*(A_cos + A_sin*1.j)
 
     def calc_core2(self,
@@ -105,13 +124,13 @@ class GPT_av:
         r_v = v - self.v_pri
         Exp = self.Obs.Hs[num].Exp(a,v)
 
-        SiHE  :sparse.csr_matrix = self.sigiH.multiply(Exp) # m*n 
-        SiHTE :sparse.csr_matrix = self.sigiHT.multiply(Exp)
-        SiHT2E:sparse.csr_matrix = self.sigiHT2.multiply(Exp)
+        SiHE  :sps.csr_matrix = self.sigiH.multiply(Exp) # m*n 
+        SiHTE :sps.csr_matrix = self.sigiHT.multiply(Exp)
+        SiHT2E:sps.csr_matrix = self.sigiHT2.multiply(Exp)
 
-        SiHE_conj = np.conjugate(SiHE)
-        SiHTE_conj = np.conjugate(SiHTE)
-        SiR = np.asarray(np.sum(SiHE,axis=1)).flatten()- self.SiA 
+        SiHE_conj = SiHE.conjugate()
+        SiHTE_conj= SiHTE.conjugate()
+        SiR = np.asarray(SiHE.sum(axis=1)).flatten()- self.SiA 
         
         #fig,ax=plt.subplots(1,2,figsize=(10,5))
         #imshow_cbar(fig,ax[0],(np.sum(SiHE,axis=1).real).reshape(200,200))
@@ -188,13 +207,13 @@ class GPT_av:
         r_v = v - self.v_pri
         Exp = self.Obs.Hs[num].Exp(a,v)
 
-        SiHE  :sparse.csr_matrix = self.sigiH.multiply(Exp) # m*n 
-        SiHTE :sparse.csr_matrix = self.sigiHT.multiply(Exp)
-        SiHT2E:sparse.csr_matrix = self.sigiHT2.multiply(Exp)
+        SiHE  :sps.csr_matrix = self.sigiH.multiply(Exp) # m*n 
+        SiHTE :sps.csr_matrix = self.sigiHT.multiply(Exp)
+        SiHT2E:sps.csr_matrix = self.sigiHT2.multiply(Exp)
 
-        SiHE_conj = np.conjugate(SiHE)
-        SiHTE_conj = np.conjugate(SiHTE)
-        SiR = np.asarray(np.sum(SiHE,axis=1)).flatten()- self.SiA 
+        SiHE_conj = SiHE.conjugate()
+        SiHTE_conj = SiHTE.conjugate()
+        SiR = np.asarray(SiHE.sum(axis=1)).flatten()- self.SiA 
         SiR_conj = np.conj(SiR)
         c1 = (SiHE.T @ SiR_conj).real 
         c2 = (1.j*SiHTE.T @ SiR_conj).real
@@ -250,7 +269,149 @@ class GPT_av:
         imshow_cbar(fig,ax[1],A.imag)
         
         plt.show()
+"""
 
+class GPT_av_ver2:
+    def __init__(self,
+        Obs: rt1kernel.Observation_Matrix_integral,
+        Kernel: rt1kernel.Kernel2D_scatter,
+        ) -> None:
+        self.Obs = Obs
+        self.rI = Obs.rI 
+        self.zI = Obs.zI 
+        self.nI = Obs.zI.size  
+        self.Kernel = Kernel
+        self.H   = Obs.Hs[0].H
+        self.Dec = Obs.Hs[0].Dcos
+        self.Exist = Obs.Hs[0].Exist
+        pass
+
+    def set_kernel(self,
+        K_a :np.ndarray,
+        K_v :np.ndarray,
+        a_pri:np.ndarray | float = 0,
+        v_pri:np.ndarray | float = 0,
+        regularization:float = 1e-5,
+        ):
+        K_a += regularization*np.eye(self.nI)
+        K_v += regularization*np.eye(self.nI)
+
+        self.K_a = 0.5*(K_a + K_a.T)
+        self.K_v = 0.5*(K_v + K_v.T)
+        K_a_inv = np.linalg.inv(self.K_a)
+        K_v_inv = np.linalg.inv(self.K_v)
+        self.K_a_inv = 0.5*(K_a_inv+K_a_inv.T)
+        self.K_v_inv = 0.5*(K_v_inv+K_v_inv.T)
+        self.a_pri = a_pri
+        self.v_pri = v_pri
+
+        self.K_f_inv = np.zeros((2*self.nI,2*self.nI))
+        self.K_f_inv[:self.nI ,:self.nI ] = self.K_a_inv[:,:]
+        self.K_f_inv[ self.nI:, self.nI:] = self.K_v_inv[:,:]
+
+        pass 
+
+        
+    def set_sig(self,
+        sigma:np.ndarray,
+        A_cos:np.ndarray,
+        A_sin:np.ndarray,
+        num:int=0,
+        ):
+        sigma = sigma.flatten()
+        A_cos = A_cos.flatten()
+        A_sin = A_sin.flatten()
+        self.sig_inv = 1/sigma
+        self.sig2_inv = 1/sigma**2
+        Dcos  = 1.j*self.Obs.Hs[num].Dcos
+        H    = self.Obs.Hs[num].H
+
+        self.sigiH   : sps.csr_matrix = sps.diags(self.sig_inv) @ H  
+        self.sigiA = np.hstack((self.sig_inv*A_cos, self.sig_inv*A_sin))
+    
+
+    def calc_core(self,
+        a:np.ndarray,
+        v:np.ndarray,
+        num:int=0
+        ):
+        import time
+        r_a = a - self.a_pri
+        r_v = v - self.v_pri
+        
+        ### preprocess ###
+        DecV = sps.csr_matrix(self.Dec @ sps.diags(v))
+        Hc = self.sigiH.multiply(csr_cos(DecV,self.Exist))
+        Hs = self.sigiH.multiply(DecV.sin())
+        Exp_a = sps.diags(np.exp(a))
+        self.Rc = sps.csr_matrix(Hc @ Exp_a )
+        self.Rs = sps.csr_matrix(Hs @ Exp_a )
+        Ac = np.asarray(self.Rc.sum(axis=1)).flatten()
+        As = np.asarray(self.Rs.sum(axis=1)).flatten()
+        sigi_g  = np.hstack((Ac,As))
+        self.resA = sigi_g-self.sigiA
+
+        self.Rc_Dec = self.Rc.multiply(self.Dec)
+        self.Rs_Dec = self.Rs.multiply(self.Dec)
+
+        Jac = sps.vstack(
+                (sps.hstack((self.Rc, -self.Rs_Dec)),
+                 sps.hstack((self.Rs,  self.Rc_Dec)))
+                )
+        
+        Jac_t = sps.csr_matrix(Jac.T)
+        
+        nabla_Phi = -np.array(Jac_t @ self.resA) - np.hstack((self.K_a_inv @r_a, self.K_v_inv @r_v))
+
+        #W1 = sparse_dot_mkl.gram_matrix_mkl( sps.csr_matrix(Jac.T),dense=True,transpose=True)
+        #W1 = W1 + W1.T - np.diag(W1.diagonal())
+
+        W1 = sparse_dot_mkl.dot_product_mkl( Jac_t ,Jac ,dense=True)
+        
+        # W2 = self._W2()
+
+        laplace_Phi = - W1  - self.K_f_inv # -W2*1
+        
+        delta_f = - np.linalg.solve(laplace_Phi, nabla_Phi)
+        delta_f[delta_f<-3] = -3
+        delta_f[delta_f>+3] = +3 
+
+        delta_a = delta_f[:self.nI]
+        delta_v = delta_f[self.nI:]
+        return delta_a, delta_v
+
+    def _W2(self,
+        ):
+
+        Rc_Dec2 =  self.Rc_Dec.multiply(self.Dec)
+        Rs_Dec2 =  self.Rs_Dec.multiply(self.Dec)
+
+        d_aa = sps.hstack((  self.Rc.T, self.Rs.T )) @ self.resA
+        d_vv = sps.hstack(( -Rc_Dec2.T, -Rs_Dec2.T )) @ self.resA
+        d_av = sps.hstack((-self.Rs_Dec.T,  self.Rc_Dec.T))  @ self.resA
+        
+        W2 = np.zeros((2*self.nI, 2*self.nI))
+        W2[:self.nI,  :self.nI ] = 1*np.diag(d_aa)[:,:]
+        W2[ self.nI:, :self.nI ] = 1*np.diag(d_av)[:,:]
+        W2[:self.nI ,  self.nI:] = 1*np.diag(d_av)[:,:]
+        W2[ self.nI:,  self.nI:] = 1*np.diag(d_vv)[:,:]
+
+        return W2
+
+
+
+    def check_diff(self,
+        a:np.ndarray,
+        v:np.ndarray):
+            
+        fig,ax = plt.subplots(1,2,figsize=(10,5))
+        A = self.Obs.Hs[0].projection_A2(a,v)
+        imshow_cbar(ax[0],A.real)
+        imshow_cbar(ax[1],A.imag)
+        
+        plt.show()
+
+GPT_av = GPT_av_ver2
 
 class GPT_log:
     def __init__(self,
@@ -266,7 +427,7 @@ class GPT_log:
 
     def set_kernel(self,
         K :np.ndarray,
-        f_pri :np.ndarray = 0,
+        f_pri :np.ndarray | float = 0,
         regularization:float = 1e-6,
         ):
         K += regularization*np.eye(self.nI)
@@ -287,20 +448,21 @@ class GPT_log:
         H    = self.Obs.Hs[num].H
 
         self.Sigi_obs = self.sig_inv*(g_obs)
-        self.sigiH   : sparse.csr_matrix =  sparse.diags(self.sig_inv) @ H 
+        self.sigiH = sps.csr_matrix(sps.diags(self.sig_inv) @ H )
+        sigiH_t = sps.csr_matrix( (sps.diags(self.sig_inv) @ H).T )
 
-        self.Hsig2iH  = (self.sigiH.T @ self.sigiH).toarray() 
-        
+        #self.Hsig2iH  = (self.sigiH.T @ self.sigiH).toarray() 
+        self.Hsig2iH = sparse_dot_mkl.gram_matrix_mkl(sigiH_t,transpose=True,dense=True)
 
     def calc_core(self,
         f:np.ndarray,
         num:int=0
         ):
         Exist = self.Obs.Hs[num].Exist
-        E :sparse.csr_matrix = (Exist@sparse.diags(f))
+        E = sps.csr_matrix(Exist@sps.diags(f))
         Exp =  E.expm1() + Exist
         
-        SiHE  :sparse.csr_matrix = self.sigiH.multiply(Exp)
+        SiHE  :sps.csr_matrix = self.sigiH.multiply(Exp)
         SiR = np.array(SiHE.sum(axis=1)).flatten() - self.Sigi_obs
         r_f = f - self.f_pri
 
@@ -363,6 +525,8 @@ class GPT_log:
         delta_f[delta_f>+3] = +3
 
         return delta_f
+    
+"""
 
 class GPT_log_torch:
     import torch
@@ -400,9 +564,9 @@ class GPT_log_torch:
         H    = self.Obs.Hs[num].H
 
         self.Sigi_obs = self.sig_inv*(g_obs)
-        self.sigiH   : sparse.csr_matrix =  sparse.diags(self.sig_inv) @ H 
+        self.sigiH = sps.csr_matrix(sps.diags(self.sig_inv) @ H )
 
-        self.Hsig2iH  = (self.sigiH.T @ self.sigiH).toarray() 
+        self.Hsig2iH = (self.sigiH.T @ self.sigiH).toarray() 
         
 
     def calc_core(self,
@@ -410,10 +574,10 @@ class GPT_log_torch:
         num:int=0
         ):
         Exist = self.Obs.Hs[num].Exist
-        E :sparse.csr_matrix = (Exist@sparse.diags(f))
+        E = sps.csr_matrix(Exist@sps.diags(f))
         Exp =  E.expm1() + Exist
         
-        SiHE  :sparse.csr_matrix = self.sigiH.multiply(Exp)
+        SiHE  :sps.csr_matrix = self.sigiH.multiply(Exp)
         SiR = np.array(SiHE.sum(axis=1)).flatten() - self.Sigi_obs
         r_f = f - self.f_pri
 
@@ -476,3 +640,6 @@ class GPT_log_torch:
         delta_f[delta_f>+3] = +3
 
         return delta_f
+
+"""
+        

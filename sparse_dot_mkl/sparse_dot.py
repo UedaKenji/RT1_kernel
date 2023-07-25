@@ -11,7 +11,7 @@ import warnings
 
 
 def dot_product_mkl(matrix_a, matrix_b, cast=False, copy=True, reorder_output=False, dense=False, debug=False,
-                    out=None, out_scalar=None):
+                    out=None, out_scalar=None)->_spsparse.csr_matrix:
     """
     Multiply together matrixes using the intel Math Kernel Library.
     This currently only supports float32 and float64 data
