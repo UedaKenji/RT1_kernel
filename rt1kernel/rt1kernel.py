@@ -738,6 +738,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         bound_sig : float = 0.05,
         bound_space : float = 1e-1,
         zero_value_index : np.ndarray =None, # requres b
+        separatrix :bool =False,
         )->Tuple[np.ndarray,np.ndarray]:
 
         self.property_K = { 'psi_scale'  : psi_scale,
@@ -748,8 +749,8 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
                             'bound_space': bound_space} 
 
         rI,zI = self.rI,self.zI
-        psi_i = rt1plotpy.mag.psi(rI,zI,separatrix=False)
-        br_i,bz_i = rt1plotpy.mag.bvec(rI,zI,separatrix=False)
+        psi_i = rt1plotpy.mag.psi(rI,zI,separatrix=separatrix)
+        br_i,bz_i = rt1plotpy.mag.bvec(rI,zI,separatrix=separatrix)
         babs_i = np.sqrt(br_i**2+bz_i**2)
 
                 
@@ -775,8 +776,8 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
         zo,ro = np.concatenate([zI[index],zb]), np.concatenate([rI[index],rb])
                 
-        psi_o = rt1plotpy.mag.psi(ro,zo,separatrix=False)
-        br_o,bz_o = rt1plotpy.mag.bvec(ro,zo,separatrix=False)
+        psi_o = rt1plotpy.mag.psi(ro,zo,separatrix=separatrix)
+        br_o,bz_o = rt1plotpy.mag.bvec(ro,zo,separatrix=separatrix)
         babs_o = np.sqrt(br_o**2+bz_o**2)
                 
 

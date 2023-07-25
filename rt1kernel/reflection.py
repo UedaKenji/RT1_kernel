@@ -533,7 +533,8 @@ class Reflection_tomography:
         sig_scale  :float =0.01,
         w          :float=1.0,
         alpha_d    :Optional[float]=None,
-        is_hessian :bool=True
+        is_hessian :bool=True,
+        is_plot    :bool = True,
         )->Tuple[np.ndarray,np.ndarray]:
         N = len(f_list)
 
@@ -640,7 +641,7 @@ class Reflection_tomography:
         lam[lam<1e-5]= 1e-5
         Kr_pos = V @ np.diag(1/lam) @ V.T
         
-        if self.ref_true is not None:    
+        if self.ref_true is not None or is_plot:    
             ref_true = self.ref_true
             fig,axs=plt.subplots(1,3,figsize=(15,5),sharey=True)
             CI,HI = self.Ref.CI,self.Ref.HI
