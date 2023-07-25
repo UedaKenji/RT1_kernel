@@ -8,7 +8,7 @@ import time
 import math
 from tqdm import tqdm
 import scipy.linalg as linalg
-from numba import jit
+from numba import njit
 import warnings
 from dataclasses import dataclass
 import itertools
@@ -40,8 +40,8 @@ class Observation_Matrix:
         rI: np.ndarray
         ):
         Dcos = self.ray.Direction_Cos(R=rI)
-        self.Exist: sparse.csr_matrix  = (self.H > 0)  
-        self.Dcos = self.Exist.multiply(Dcos)
+        self.Exist :sparse.csr_matrix = (self.H > 0)  
+        self.Dcos  :sparse.csr_matrix = self.Exist.multiply(Dcos)
         pass 
 
     def projection_A(self,
@@ -161,7 +161,7 @@ class Observation_Matrix_integral:
         zI    : np.ndarray) -> None:
         self.shape :tuple = H_list[0].shape 
         self.n  = len(H_list)
-        self.mask = np.ones(self.shape[0:2],dtype=np.bool8)
+        self.mask = np.ones(self.shape[0:2],dtype=np.bool_)
         self.refs = [1.]*self.n
         self.ray_init = ray0
         self.Hs = H_list
@@ -545,7 +545,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             r_all = np.append(r_all,r) 
 
         # 重複する点を除外する
-        is_duplicate = np.zeros(z_all.size,dtype=np.bool8)
+        is_duplicate = np.zeros(z_all.size,dtype=np.bool_)
         for i in range(r_all.size-1):
             res = abs(z_all[i]-z_all[i+1:])+ abs(r_all[i]-r_all[i+1:])
             is_duplicate[i] = np.any(res < delta_l/100)
@@ -831,7 +831,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
 
 
-@jit
+@njit
 def d2min(x,y,xs,ys):
     x_tau2 = (x- xs)**2
     y_tau2 = (y- ys)**2
@@ -868,7 +868,7 @@ def GibbsKer(
         Lysq = Ly[0]**2+Ly[1]**2 
         return np.sqrt(2*Lx[0]*Lx[1]/Lxsq)*np.sqrt(2*Ly[0]*Ly[1]/Lysq)*np.exp( -   (X[0]-X[1])**2 / Lxsq  - (Y[0]-Y[1])**2 / Lysq )
 
-@jit
+@njit
 def GibbsKer_fast(
     x0 : np.ndarray,
     x1 : np.ndarray,

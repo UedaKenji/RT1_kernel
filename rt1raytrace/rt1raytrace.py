@@ -7,7 +7,7 @@ import time
 import math
 from tqdm import tqdm
 import scipy.linalg as linalg
-from numba import jit
+from numba import njit
 import warnings
 from dataclasses import dataclass
 import itertools
@@ -153,6 +153,9 @@ class Circle:
         return is_cross_circle
 
 
+a = np.linspace(0,1,10)
+
+a.sum()
 
 
 
@@ -1220,7 +1223,7 @@ def Raytrace_load_model(
     if is_plot: model.show_ims()
     return model
 
-@jit
+@njit
 def d2min(x,y,xs,ys):
     x_tau2 = (x- xs)**2
     y_tau2 = (y- ys)**2
@@ -1257,7 +1260,7 @@ def GibbsKer(
         Lysq = Ly[0]**2+Ly[1]**2 
         return np.sqrt(2*Lx[0]*Lx[1]/Lxsq)*np.sqrt(2*Ly[0]*Ly[1]/Lysq)*np.exp( -   (X[0]-X[1])**2 / Lxsq  - (Y[0]-Y[1])**2 / Lysq )
 
-@jit
+@njit
 def GibbsKer_fast(
     x0 : np.ndarray,
     x1 : np.ndarray,
