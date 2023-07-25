@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 import mpl_toolkits.axes_grid1
 from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
+import matplotlib.figure 
 import numpy as np
 import pandas as pd
-from numpy.core.arrayprint import IntegerFormat
 from numpy.core.fromnumeric import transpose
 from PIL import Image
 from scipy import misc, ndimage, optimize, signal
@@ -34,8 +34,14 @@ params = {
         
 plt.rcParams.update(**params)
 
+type_fig = matplotlib.figure.Figure
 
-def imshow_cbar(ax, im0,cbar_title=None,**kwargs):
+def imshow_cbar(
+    ax:plt.Axes,
+    im0:np.ndarray,
+    cbar_title: str|None=None,
+    **kwargs
+    ):
 
     im = ax.imshow(im0,**kwargs)
     divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)    
@@ -46,18 +52,26 @@ def imshow_cbar(ax, im0,cbar_title=None,**kwargs):
 
 
 
-def contourf_cbar(f:plt.Figure, ax, im0, title:str=None,**kwargs):
+def contourf_cbar(
+    ax:plt.Axes,
+    im0:np.ndarray,
+    cbar_title: str|None=None,
+    **kwargs
+    ):
 
-    divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)
-    cax = divider.append_axes('right', '5%', pad='3%')
-    im = ax.contourf(im0,**kwargs)
-    ax.set_title(title)
+    im = ax.imshow(im0,**kwargs)
+    divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)    
+    cax = divider.append_axes("right", size="5%", pad='3%')
+    cbar = plt.colorbar(im, cax=cax, orientation='vertical')
+    if cbar_title is not None: cbar.set_title(cbar_title)
     ax.set_aspect('equal')
-    f.colorbar(im,cax=cax)
-
     
-def imshow_cbar_bottom(ax, im0,cbar_title=None,**kwargs):
-
+def imshow_cbar_bottom(
+    ax:plt.Axes,
+    im0:np.ndarray,
+    cbar_title=None,
+    **kwargs
+    ):
     im = ax.imshow(im0,**kwargs)
     divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)    
     cax = divider.append_axes("bottom", size="5%", pad='3%')
@@ -66,7 +80,12 @@ def imshow_cbar_bottom(ax, im0,cbar_title=None,**kwargs):
     ax.set_aspect('equal')
 
     
-def scatter_cbar(ax, x,y,c,cbar_title=None,**kwargs):
+def scatter_cbar(
+    ax:plt.Axes,
+    x, y, c,
+    cbar_title=None,
+    **kwargs
+    ):
     im = ax.scatter(x=x,y=y,c=c,**kwargs)
     divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)
     cax = divider.append_axes('right' , size="5%", pad='3%')
@@ -75,10 +94,15 @@ def scatter_cbar(ax, x,y,c,cbar_title=None,**kwargs):
     ax.set_aspect('equal')
 
     
-def cmap_line(ax, x,y,C,cmap='viridis',cbar_title=None,**kwargs):
-    
+def cmap_line(
+    ax:plt.Axes,
+    x, y, C, 
+    cmap='viridis',
+    cbar_title=None,
+    **kwargs
+    ):
     norm = Normalize(vmin=y.min(), vmax=y.max())
-    cmap = plt.get_cmap(cmap)
+    cmap = plt.get_cmap(cmap) # type: ignore
 
     for i,yi in enumerate(y):
         color = cmap(norm(yi))

@@ -25,7 +25,7 @@ import sparse_dot_mkl
 
 
 
-__all__ = ['GPT_av_ver2', 
+__all__ = ['GPT_av_old', 
            'GPT_av', 
            'GPT_log']
 
@@ -43,7 +43,7 @@ def csr_cos(A ,Exist)->csr:
 __all__ = []
 
 """
-class GPT_av:
+class GPT_av_old:
     def __init__(self,
         Obs: rt1kernel.Observation_Matrix_integral,
         Kernel: rt1kernel.Kernel2D_scatter,
@@ -271,7 +271,7 @@ class GPT_av:
         plt.show()
 """
 
-class GPT_av_ver2:
+class GPT_av:
     def __init__(self,
         Obs: rt1kernel.Observation_Matrix_integral,
         Kernel: rt1kernel.Kernel2D_scatter,
@@ -411,7 +411,6 @@ class GPT_av_ver2:
         
         plt.show()
 
-GPT_av = GPT_av_ver2
 
 class GPT_log:
     def __init__(self,
@@ -489,10 +488,10 @@ class GPT_log:
             
         fig,ax = plt.subplots(1,3,figsize=(10,4))
         g = self.Obs.Hs[0].projection(np.exp(f))
-        imshow_cbar(fig,ax[0],g)
+        imshow_cbar(ax[0],g)
         ax[0].set_title('Hf')
         vmax = (abs(g-self.g_obs)).max()
-        imshow_cbar(fig,ax[1],g-self.g_obs,vmin=-vmax,vmax=vmax,cmap='turbo')
+        imshow_cbar(ax= ax[1],im0 = g-self.g_obs,vmin=-vmax,vmax=vmax,cmap='turbo')
         ax[1].set_title('diff_im')
         
         ax[2].hist((g-self.g_obs).flatten(),bins=50)

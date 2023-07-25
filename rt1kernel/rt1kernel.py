@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy import FPE_DIVIDEBYZERO, array, linalg, ndarray
 import rt1plotpy
-from typing import Optional, Union,Tuple,Callable,List
+from typing import Optional, Union,Tuple,Callable, TypeVar,cast
 import time 
 import math
 from tqdm import tqdm
@@ -26,21 +26,33 @@ __all__ = ['Kernel2D_scatter',
            'Observation_Matrix_integral',
            'Observation_Matrix_integral_load_model']
 
+float_numpy = TypeVar(" float|np.ndarray ",float,np.ndarray) # type: ignore
+
+def const_like(x:float, type_x:float_numpy)->float_numpy:
+    return cast(float_numpy, x + 0*type_x)
+
+def ones_like(type_x:float_numpy)->float_numpy:
+    return cast(float_numpy, 1.0*type_x)
+
+def zeros_like(type_x:float_numpy)->float_numpy:
+    return cast(float_numpy, 0.0*type_x)
+
+
 @dataclass
 class Observation_Matrix:
-    H  : Union[np.ndarray,sparse.csr_matrix]
+    H  : Union[sparse.csr_matrix,np.ndarray]
     ray: rt1raytrace.Ray
     
     def __post_init__(self):
         shape = self.H.shape
-        self.H :sparse.csr_matrix = sparse.csr_matrix(self.H.reshape(shape[0]*shape[1],shape[2]))
+        self.H = sparse.csr_matrix(self.H.reshape(shape[0]*shape[1],shape[2]))
         self.shape :tuple = shape
     
     def set_Direction(self,
-        rI: np.ndarray
+            rI: np.ndarray
         ):
         Dcos = self.ray.Direction_Cos(R=rI)
-        self.Exist :sparse.csr_matrix = (self.H > 0)  
+        self.Exist = sparse.csr_matrix(self.H > 0)  
         self.Dcos  :sparse.csr_matrix = self.Exist.multiply(Dcos)
         pass 
 
@@ -51,6 +63,7 @@ class Observation_Matrix:
         reshape:bool=True
         ) -> np.ndarray:
 
+        self.H = cast(sparse.csr_matrix,self.H)
         E :sparse.csr_matrix = (self.Exist@sparse.diags(np.log(f)-t)+1.j*self.Dcos@sparse.diags(v))
         E = E.expm1() + self.Exist
         A = np.array(self.H.multiply(E).sum(axis=1))
@@ -66,6 +79,7 @@ class Observation_Matrix:
         reshape:bool=True
         ) -> np.ndarray:
 
+        self.H = cast(sparse.csr_matrix,self.H)
         E :sparse.csr_matrix = (self.Exist@sparse.diags(a)+1.j*self.Dcos@sparse.diags(v))
         E = E.expm1() + self.Exist
         A = np.array(self.H.multiply(E).sum(axis=1))
@@ -96,6 +110,7 @@ class Observation_Matrix:
             return g
 
     def toarray(self):
+        self.H = cast(sparse.csr_matrix,self.H)
         return self.H.toarray()
 
     def set_mask(self,mask:np.ndarray):
@@ -131,7 +146,8 @@ class Observation_Matrix_integral:
     indices = {'400nm':(1.7689 ,0.60521),
                '700nm':(0.70249,0.36890)}
 
-    def load_model(path:str): 
+    def load_model(path:str):  #type: ignore   #selfがないことを怒られた.
+        
         return pd.read_pickle(path)
 
     def save_model(self,path:str):
@@ -155,7 +171,7 @@ class Observation_Matrix_integral:
         
 
     def __init__(self,
-        H_list: List[Observation_Matrix],
+        H_list: list[Observation_Matrix],
         ray0  : rt1raytrace.Ray,
         rI    : np.ndarray,
         zI    : np.ndarray) -> None:
@@ -183,7 +199,7 @@ class Observation_Matrix_integral:
         if not mask is None:
             self.mask = mask 
         
-        self.Hs_mask: List[sparse.csr_matrix]  = [] 
+        self.Hs_mask: list[sparse.csr_matrix]  = [] 
         for H in self.Hs:
             self.Hs_mask.append(H.set_mask(self.mask))
 
@@ -206,7 +222,7 @@ class Observation_Matrix_integral:
         mask: Optional[np.ndarray] = None 
         ) -> None :
 
-        self.H_sum :sparse.csr_matrix = 0.
+        self.H_sum :sparse.csr_matrix = 0. # type: ignore
 
         if not mask is None:
             self.set_mask(mask)
@@ -268,9 +284,9 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
     def create_induced_point(self,
         z_grid: np.ndarray,
         r_grid: np.ndarray,
-        length_sq_fuction: Callable[[float,float],None],
+        length_sq_fuction: Callable[[np.ndarray,np.ndarray],np.ndarray],
         boundary = 0, 
-        ) -> Tuple[np.ndarray,np.ndarray]:     
+        ) -> Tuple[np.ndarray,np.ndarray] | None:     
         """
         create induced point based on length scale function
 
@@ -319,7 +335,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
         self.zI, self.rI = zI, rI
         self.nI = rI.size
-        self.length_scale_sq: Callable[[float,float],float] = length_sq_fuction 
+        self.length_scale_sq: Callable[[np.ndarray,np.ndarray],np.ndarray]= length_sq_fuction 
         print('num of induced point is ',self.nI)
         return zI, rI
 
@@ -392,7 +408,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             LS = self.length_scale(R,Z)
 
-            contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
+            contourf_cbar(ax[0],LS*mask,cmap='turbo',**im_kwargs)
 
             ax[0].set_title('Length scale distribution',size=15)
             ax[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
@@ -436,7 +452,8 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             LS = self.length_scale(R,Z)
 
-            contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
+
+            contourf_cbar(ax[0],LS*mask,cmap='turbo',**im_kwargs)  
 
             ax[0].set_title('Length scale distribution',size=15)
                 
@@ -457,7 +474,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         zI: np.ndarray,
         rb: np.ndarray,
         zb: np.ndarray,
-        length_sq_fuction: Callable[[float,float],float],
+        length_sq_fuction: Callable[[np.ndarray,np.ndarray],np.ndarray],
         is_plot: bool = False,
         ) :  
         """
@@ -473,7 +490,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         self.z_bound, self.r_bound = zb, rb
         self.nI = rI.size
         self.nb = rb.size
-        self.length_scale_sq: Callable[[float,float],float] = length_sq_fuction 
+        self.length_scale_sq: Callable[[np.ndarray,np.ndarray],np.ndarray] = length_sq_fuction 
         self.Lsq_I = self.length_scale_sq(self.rI,self.zI) 
         if is_plot:
             fig,ax = plt.subplots(1,2,figsize=(10,5))
@@ -493,7 +510,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             LS = self.length_scale(R,Z)
 
-            contourf_cbar(fig,ax[0],LS*mask,cmap='turbo',**im_kwargs)
+            contourf_cbar(ax[0],LS*mask,cmap='turbo',**im_kwargs)
 
 
             ax[0].set_title('Length scale distribution',size=15)
@@ -509,7 +526,11 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
 
     
-    def set_bound_space(self,delta_l = 1e-2,is_change_local_variable=True):
+    def set_bound_space(self,
+        delta_l = 1e-2,
+        is_change_local_variable
+        :bool=True
+        ) -> tuple[np.ndarray,np.ndarray] :
         """
         create induced point with equal space 
 
@@ -558,6 +579,8 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             self.r_bound = r_all
             self.z_bound = z_all 
             self.nb = self.z_bound.size
+            return r_all,z_all 
+
         else:
             return r_all,z_all 
 
@@ -567,7 +590,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
     def set_induced_point(self,
         zI: np.ndarray,
         rI: np.ndarray,
-        length_sq_fuction: Callable[[float,float],float],
+        length_sq_fuction: Callable[[np.ndarray,np.ndarray],np.ndarray],
         ) :     
         """
         set induced point by input existing data
@@ -580,7 +603,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         """
         self.zI, self.rI = zI, rI
         self.nI = rI.size
-        self.length_scale_sq: Callable[[float,float],float] = length_sq_fuction 
+        self.length_scale_sq: Callable[[np.ndarray,np.ndarray],np.ndarray] = length_sq_fuction 
         self.Lsq_I = self.length_scale_sq(self.rI,self.zI) 
     
     def length_scale(self,r,z):
@@ -589,8 +612,8 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
     def set_grid_interface(self,
         z_medium   : np.ndarray,
         r_medium   : np.ndarray,
-        z_plot: np.ndarray=[None],
-        r_plot: np.ndarray=[None],
+        z_plot: np.ndarray |list[None] = [None],
+        r_plot: np.ndarray |list[None] = [None],
         scale    : float = 1,
         add_bound :bool=False,
         )  :
@@ -636,7 +659,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             λ_r1, self.Q_r1 = np.linalg.eigh(Kr1r1)
             λ_z1, self.Q_z1 = np.linalg.eigh(Kz1z1)
 
-            self.mask, self.im_kwargs = self.grid_input(r_plot,z_plot,isnt_print=False)
+            self.mask, self.im_kwargs = self.grid_input(np.array(r_plot),np.array(z_plot),isnt_print=False)
 
             self.KrHDr1 = SEKer(x0=r_plot,x1=r_medium, y0=0, y1=0, lx=dr, ly=1)
             self.KzHDz1 = SEKer(x0=z_plot,x1=z_medium, y0=0, y1=0, lx=dz, ly=1)
@@ -669,7 +692,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
     def create_observation_matrix(self,
         ray  : rt1raytrace.Ray,
         Lnum : int=100
-        ) -> np.ndarray:
+        ) ->  Observation_Matrix:
         self.im_shape = ray.shape
 
         H = np.zeros((ray.shape[0], ray.shape[1], self.rI.size))
@@ -737,7 +760,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         bound_value : float=-2,
         bound_sig : float = 0.05,
         bound_space : float = 1e-1,
-        zero_value_index : np.ndarray =None, # requres b
+        zero_value_index : np.ndarray |None =None, # requres b
         )->Tuple[np.ndarray,np.ndarray]:
 
         self.property_K = { 'psi_scale'  : psi_scale,
@@ -802,7 +825,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
     
     def sampler(self,
         K   : Optional[np.ndarray]=None,
-        mu_f: np.ndarray=0
+        mu_f: np.ndarray | float = 0.
         ) -> np.ndarray:
 
         if K is None:
@@ -850,8 +873,8 @@ def GibbsKer(
     y1 : np.ndarray,
     lx0: np.ndarray,
     lx1: np.ndarray,
-    ly0: Union[np.ndarray,bool]=None,
-    ly1: Union[np.ndarray,bool]=None,
+    ly0: np.ndarray | bool  = False,
+    ly1: np.ndarray | bool  = False,
     isotropy: bool = False
     ) -> np.ndarray:  
 
@@ -863,7 +886,7 @@ def GibbsKer(
     if isotropy:
         return 2*Lx[0]*Lx[1]/Lxsq *np.exp( -   ((X[0]-X[1])**2  +(Y[0]-Y[1])**2 )/ Lxsq )
 
-    else:        
+    else:
         Ly = np.meshgrid(ly0,ly1,indexing='ij')
         Lysq = Ly[0]**2+Ly[1]**2 
         return np.sqrt(2*Lx[0]*Lx[1]/Lxsq)*np.sqrt(2*Ly[0]*Ly[1]/Lysq)*np.exp( -   (X[0]-X[1])**2 / Lxsq  - (Y[0]-Y[1])**2 / Lysq )

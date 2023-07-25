@@ -2,7 +2,7 @@ from pkgutil import extend_path
 import matplotlib.pyplot as plt
 import numpy as np
 import rt1plotpy
-from typing import Optional, Union,Tuple,Callable,List
+from typing import Optional, Union,Tuple,Callable,List,TypeVar,cast
 import time 
 import math
 from tqdm import tqdm
@@ -30,6 +30,18 @@ __all__ = ['Reflection_Kernel_grid',
            'sigmoid_inv',
            'Reflection_tomography'
            ]
+
+
+float_numpy = TypeVar(" float|np.ndarray ",float,np.ndarray) # type: ignore
+
+def const_like(x:float, type_x:float_numpy)->float_numpy:
+    return cast(float_numpy, x + 0*type_x)
+
+def ones_like(type_x:float_numpy)->float_numpy:
+    return cast(float_numpy, 1.0*type_x)
+
+def zeros_like(type_x:float_numpy)->float_numpy:
+    return cast(float_numpy, 0.0*type_x)
 
 
 rt1_ax_kwargs = {'xlim'  :(0,1.1),
@@ -125,7 +137,7 @@ class Reflection_Kernel_grid:
     def make_plot(self,
         f :np.ndarray,
         show: bool =True,
-        ) -> np.ndarray:
+        ) -> None:
         
         from matplotlib.colors import Normalize
         from matplotlib.cm import ScalarMappable
@@ -185,7 +197,7 @@ class Diffusion_kernel:
         zIb: np.ndarray,
         frame:rt1plotpy.frame.Frame,
         length_sacle_sq_I:np.ndarray,
-        ) -> np.ndarray:
+        ) -> None:
 
         #########この部分は，RT-1の形に極めて依存########################
         is_wall_outer =  Obs.Hs[0].ray.R1 >0.55
@@ -258,7 +270,7 @@ class Diffusion_kernel:
                     plt.show()
                 """
 
-        Z_all_0 = Obs.Hs[1].ray.Z0.copy()
+        Z_all_0 = np.array(Obs.Hs[1].ray.Z0).copy()
 
         Z_all_0[Z_all_0> zIb.max()] = zIb.max()
         Z_all_0[Z_all_0< zIb.min()] = zIb.min()
@@ -326,7 +338,7 @@ class Reflection_tomography:
             sig_inv_spa = sparse.diags(1/sig_im.flatten())
             
         if ref_mask is None:
-            self.ref_mask = np.zeros(g_size,dtype=np.bool8)
+            self.ref_mask = np.zeros(g_size,dtype=np.bool_)
         else:
             self.ref_mask = (ref_mask.flatten() == True)
 
@@ -478,7 +490,6 @@ class Reflection_tomography:
         
         Kf_pos_list = []
         f_rmse      = []
-        is_plot
         for i in range(self.n_frame):
 
             f = f_list[i].copy()
@@ -534,7 +545,7 @@ class Reflection_tomography:
         w          :float=1.0,
         alpha_d    :Optional[float]=None,
         is_hessian :bool=True
-        )->Tuple[np.ndarray,np.ndarray]:
+        )->Tuple[np.ndarray,np.ndarray,np.ndarray]:
         N = len(f_list)
 
         expf_list = [np.exp(f_list[i]+0.5*np.diag(Kf_now_list[i])) for i in range(N)]
@@ -597,8 +608,8 @@ class Reflection_tomography:
         elif self.n_reflection ==2 : 
             LL_torch:Callable[[torch.Tensor],torch.Tensor] = LL_torch_ref2
         else:
-            return print('something err')
-
+            print('something err')
+            return 
         Phi0 = LL_torch(torch.zeros(refI.size)).numpy().astype(np.float32)
 
         def Phi(x):

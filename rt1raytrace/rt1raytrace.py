@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy import FPE_DIVIDEBYZERO, array, linalg, ndarray
 from rt1plotpy import frame
-from typing import Optional, Union,Tuple,Callable,List
+from typing import Optional, Union,Tuple,Callable,List,TypeVar,cast
 import time 
 import math
 from tqdm import tqdm
@@ -20,22 +20,37 @@ from rt1raytrace.plot_utils import *
 __all__ = ['Raytrace','Circle','Ray','Raytrace_load_model']
 
 
+float_numpy = TypeVar(" float|np.ndarray ",float,np.ndarray) # type: ignore
+
+def const_like(x:float, type_x:float_numpy)->float_numpy:
+    return cast(float_numpy, x + 0*type_x)
+
+def ones_like(type_x:float_numpy)->float_numpy:
+    return cast(float_numpy, 1.0*type_x)
+
+def zeros_like(type_x:float_numpy)->float_numpy:
+    return cast(float_numpy, 0.0*type_x)
+
 @dataclass
 class Ray:
     Ve_theta0: np.ndarray
     Ho_theta0: np.ndarray
-    R0  : Union[np.ndarray, float]
-    Phi0: Union[np.ndarray, float] = 0.
-    Z0  : Union[np.ndarray, float] = 0.
-    cos_factor: Union[np.ndarray,float] = 1
-
+    R0  : float_numpy      # type: ignore
+    Phi0: float_numpy = 0. # type: ignore
+    Z0  : float_numpy = 0. # type: ignore
+    cos_factor: float_numpy = 1.   # type: ignore
     raytraced: bool = False
 
     def __post_init__(self):
         self.shape = (self.Ve_theta0.shape)
         self.cos_factor = np.abs(self.cos_factor)
+        self.cos_factor = cast(typ=float_numpy, val=self.cos_factor) # type: ignore # type is explicitly float_numpy
 
-    def set_raytraced(self, Length, ref_type, ref_num):
+    def set_raytraced(self,
+        Length   : np.ndarray,
+        ref_type : np.ndarray,
+        ref_num  : np.ndarray
+        ):
         self.reytraced = True        
         self.Length   : np.ndarray = Length      
         self.ref_type : np.ndarray = ref_type
@@ -84,7 +99,7 @@ class Ray:
         Lnum: int=1,
         Lmax: Union[np.ndarray,float,None] = None,
         Lmin: float = 0., 
-        ) ->  Tuple[np.ndarray, np.ndarray]:
+        ) ->  Tuple[np.ndarray, np.ndarray, np.ndarray]:
         R,Phi,Z,_ = self.ZΦRL_ray(Lmax=Lmax,Lnum=Lnum,Lmin=Lmin)
         X = R*np.cos(Phi)
         Y = R*np.sin(Phi)
@@ -110,10 +125,10 @@ class Ray:
 class Circle:
     
     radius     :float
-    rφz_norm   :Tuple[float,float,float] =None
-    xyz_norm   :Tuple[float,float,float] =None
-    rφz_center :Tuple[float,float,float] =None 
-    xyz_center :Tuple[float,float,float] =None 
+    rφz_center :Tuple[float,float,float] 
+    xyz_center :Tuple[float,float,float]  
+    rφz_norm   :Tuple[float,float,float] = None # type: ignore
+    xyz_norm   :Tuple[float,float,float] = None # type: ignore
 
     def __post_init__(self):
         if self.xyz_center is None:
@@ -162,7 +177,7 @@ a.sum()
 
 class Raytrace(frame.Frame):
     def load_model(
-        path:str, 
+        path:str,  # type: ignore
         is_plot:bool=False
         ) :
         model:Raytrace = pd.read_pickle(path) 
@@ -335,7 +350,7 @@ class Raytrace(frame.Frame):
     def main2(self,
         N:int=1,
         Lmax:float=3.0,
-        Lnum: Union[int, List[int]]=100):
+        Lnum: Union[int, list[int]]=100):
 
         if not 'Ve_cam'  in dir(self):
             print('set_camera() or set_angle() is to be done in advance!')
@@ -344,8 +359,7 @@ class Raytrace(frame.Frame):
         if type(Lnum) is int:
             Lnum = [Lnum]*N
 
-        
-
+        Lnum =cast(list[int],Lnum)
         self.rays :list[Ray] = []
         self.rays.append(self.ray_1st)
         self.print_raytrace(1)
@@ -715,7 +729,7 @@ class Raytrace(frame.Frame):
             
             D_is_0 = (D <= 1e-15)
             D += D_is_0 * 1e-15
-            W1, W2 = Z3*R4-Z4*R3, Z1*R2 - Z2*R1
+            W1, W2 = Z3*R4-Z4*R3, Z1*R2 - Z2*R1 # type: ignore
 
             R_inter = ( (R2-R1) * W1 - (R4-R3) * W2 ) / D 
             Z_inter = ( (Z2-Z1) *W1 - (Z4-Z3) * W2 ) / D  
@@ -724,7 +738,7 @@ class Raytrace(frame.Frame):
 
             lR = R2-R1
             lZ = Z2-Z1
-            S  = R2*Z1 - R1*Z2
+            S  = R2*Z1 - R1*Z2 # type: ignore
             D = (lR**2+lZ**2)*radius**2 + 2*lR*lZ*Rc*Zc - 2*(lZ*Rc-lR*Zc)*S - lR**2 *Zc**2 -lZ**2*Rc**2-S**2 #判別式
             D = Is_Arc * D
             Ri1 = (lR**2 *Rc + lR*lZ *Zc - lZ *S + lR * np.sqrt(D) ) / (lR**2 + lZ**2)  # １つ目の交点のR座標
@@ -755,8 +769,8 @@ class Raytrace(frame.Frame):
             R_sol=  Ri1 *Is_Arc1 + Ri2 *Is_Arc2 + np.nan_to_num(R_inter) *Is_Line
             Z_sol=  Zi1 *Is_Arc1 + Zi2 *Is_Arc2 + np.nan_to_num(Z_inter) *Is_Line
 
-            Li = (L_1st* (R2-R_sol+Z2-Z_sol) + L_2nd* (R_sol-R1+Z_sol-Z1) ) / (R2-R1+Z2-Z1)
-            Li = ~no_interception*Li + no_interception*Lmax
+            Li = (L_1st* (R2-R_sol+Z2-Z_sol) + L_2nd* (R_sol-R1+Z_sol-Z1) ) / (R2-R1+Z2-Z1) # type: ignore
+            Li = ~no_interception*Li + no_interception*Lmax 
 
             Is_finish += np.isnan(Li)
 
@@ -786,7 +800,8 @@ class Raytrace(frame.Frame):
 
         self.n_ve, self.n_ho = self.im_shape[0], self.im_shape[1]
 
-        Lmax,Lmin = Lmax,1e-3
+        Lmax = Lmax
+        Lmin = 1e-3
         L_sol  = 0
 
         for i in range(3):
@@ -1001,8 +1016,8 @@ class Raytrace(frame.Frame):
                     L_1st[i,j] = LL[ index ,i,j]
                     L_2nd[i,j] = LL[ index+1,i,j]
 
-            frame_type = self.intersect_info['frame_type']
-            frame_num  = self.intersect_info['frame_num']
+            frame_type :np.ndarray = self.intersect_info['frame_type']
+            frame_num  :np.ndarray = self.intersect_info['frame_num']
 
 
             Lmin = L_1st
@@ -1242,8 +1257,8 @@ def GibbsKer(
     y1 : np.ndarray,
     lx0: np.ndarray,
     lx1: np.ndarray,
-    ly0: Union[np.ndarray,bool]=None,
-    ly1: Union[np.ndarray,bool]=None,
+    ly0: Union[np.ndarray,bool]=None, # type: ignore
+    ly1: Union[np.ndarray,bool]=None, # type: ignore
     isotropy: bool = False
     ) -> np.ndarray:  
 
