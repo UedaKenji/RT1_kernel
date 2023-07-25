@@ -7,7 +7,7 @@ import time
 import math
 from tqdm import tqdm
 import scipy.linalg as linalg
-from numba import njit
+from numba import njit 
 import warnings
 from dataclasses import dataclass
 import itertools
