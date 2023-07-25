@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy import FPE_DIVIDEBYZERO, array, linalg, ndarray
 import rt1plotpy
-from typing import Optional, Union,Tuple,Callable, TypeVar,cast
+from typing import Optional, Union,Tuple,Callable, TypeVar,cast,List
 import time 
 import math
 from tqdm import tqdm
@@ -171,7 +171,7 @@ class Observation_Matrix_integral:
         
 
     def __init__(self,
-        H_list: list[Observation_Matrix],
+        H_list: List[Observation_Matrix],
         ray0  : rt1raytrace.Ray,
         rI    : np.ndarray,
         zI    : np.ndarray) -> None:
@@ -760,12 +760,8 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         bound_value : float=-2,
         bound_sig : float = 0.05,
         bound_space : float = 1e-1,
-<<<<<<< HEAD
-        zero_value_index : np.ndarray |None =None, # requres b
-=======
-        zero_value_index : np.ndarray =None, # requres b
+        zero_value_index : np.ndarray |None = None, # requres b
         separatrix :bool =False,
->>>>>>> bb9fea143196f714293266291f565fe39f601496
         )->Tuple[np.ndarray,np.ndarray]:
 
         self.property_K = { 'psi_scale'  : psi_scale,
@@ -853,9 +849,41 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         
         noise = np.random.randn(self.nI)
         return  mu_f+ self.V @ (np.sqrt(self.lam) *  noise)  
+    
+    def plot_mosaic(self,
+        ax:plt.Axes,      
+        f:np.ndarray,
+        size :float = 1.0,
+        back_ground:float | None =None,
+        cbar_title: str|None = None,
+        is_frame:bool=True,
+        **kwargs_scatter,
+        )->None:
 
-
-
+        if back_ground is not None:
+            cmap = None
+            alpha =1.0
+            vmax = f.max()
+            vmin = f.min()
+            if 'vmax' in kwargs_scatter:
+                vmax = kwargs_scatter['vmax']
+            if 'vmin' in kwargs_scatter:
+                vmin = kwargs_scatter['vmin']
+            if 'cmap' in kwargs_scatter:
+                cmap = kwargs_scatter['cmap']
+            if 'alpha' in kwargs_scatter:
+                alpha = kwargs_scatter['alpha']
+            
+            ax.imshow(back_ground*self.mask,cmap=cmap,vmax=vmax,vmin=vmin,**self.im_kwargs)
+        
+        size = size**2*1e5*self.Lsq_I
+        im = ax.scatter(x=self.rI,y=self.zI,c=f,s=size,**kwargs_scatter)
+        divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)
+        cax = divider.append_axes('right' , size="5%", pad='3%')
+        cbar = plt.colorbar(im, cax=cax, orientation='vertical')
+        if cbar_title is not None: cbar.set_label(cbar_title)
+        ax.set_aspect('equal')
+        if is_frame: self.append_frame(ax=ax,add_coil=True)
 
 
 

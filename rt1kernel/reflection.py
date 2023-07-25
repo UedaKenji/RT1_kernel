@@ -544,14 +544,10 @@ class Reflection_tomography:
         sig_scale  :float =0.01,
         w          :float=1.0,
         alpha_d    :Optional[float]=None,
-<<<<<<< HEAD
-        is_hessian :bool=True
-        )->Tuple[np.ndarray,np.ndarray,np.ndarray]:
-=======
         is_hessian :bool=True,
         is_plot    :bool = True,
         )->Tuple[np.ndarray,np.ndarray]:
->>>>>>> bb9fea143196f714293266291f565fe39f601496
+        
         N = len(f_list)
 
         expf_list = [np.exp(f_list[i]+0.5*np.diag(Kf_now_list[i])) for i in range(N)]
