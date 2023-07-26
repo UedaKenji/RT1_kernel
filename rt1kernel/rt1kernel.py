@@ -29,7 +29,6 @@ __all__ = ['Kernel2D_scatter',
 
 float_numpy = TypeVar(" float | NDArray[float64] ",float,npt.NDArray[np.float64])#type: ignore # 怒られているけど、実行する気エラーにならないので無視する。
 
-type_2Dfn = Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]]
 
 def const_like(x:float, type_x:float_numpy)->float_numpy:
     return cast(float_numpy, x + 0*type_x)
