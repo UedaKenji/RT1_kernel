@@ -1,6 +1,7 @@
 from pkgutil import extend_path
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.typing as npt
 from numpy import FPE_DIVIDEBYZERO, array, linalg, ndarray
 import rt1plotpy
 from typing import Optional, Union,Tuple,Callable, TypeVar,cast,List
@@ -26,7 +27,9 @@ __all__ = ['Kernel2D_scatter',
            'Observation_Matrix_integral',
            'Observation_Matrix_integral_load_model']
 
-float_numpy = TypeVar(" float|np.ndarray ",float,np.ndarray) # type: ignore
+float_numpy = TypeVar(" float | NDArray[float64] ",float,npt.NDArray[np.float64])#type: ignore # 怒られているけど、実行する気エラーにならないので無視する。
+
+type_2Dfn = Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]]
 
 def const_like(x:float, type_x:float_numpy)->float_numpy:
     return cast(float_numpy, x + 0*type_x)
@@ -40,7 +43,7 @@ def zeros_like(type_x:float_numpy)->float_numpy:
 
 @dataclass
 class Observation_Matrix:
-    H  : Union[sparse.csr_matrix,np.ndarray]
+    H  : Union[sparse.csr_matrix,npt.NDArray[np.float64]]
     ray: rt1raytrace.Ray
     
     def __post_init__(self):
@@ -49,7 +52,7 @@ class Observation_Matrix:
         self.shape :tuple = shape
     
     def set_Direction(self,
-            rI: np.ndarray
+            rI: npt.NDArray[np.float64]
         ):
         Dcos = self.ray.Direction_Cos(R=rI)
         self.Exist = sparse.csr_matrix(self.H > 0)  
@@ -57,11 +60,11 @@ class Observation_Matrix:
         pass 
 
     def projection_A(self,
-        f :np.ndarray,
-        t :np.ndarray,
-        v :np.ndarray,
+        f :npt.NDArray[np.float64],
+        t :npt.NDArray[np.float64],
+        v :npt.NDArray[np.float64],
         reshape:bool=True
-        ) -> np.ndarray:
+        ) -> npt.NDArray[np.float64]:
 
         self.H = cast(sparse.csr_matrix,self.H)
         E :sparse.csr_matrix = (self.Exist@sparse.diags(np.log(f)-t)+1.j*self.Dcos@sparse.diags(v))
@@ -74,10 +77,10 @@ class Observation_Matrix:
             return A
 
     def projection_A2(self,
-        a :np.ndarray,
-        v :np.ndarray,
+        a :npt.NDArray[np.float64],
+        v :npt.NDArray[np.float64],
         reshape:bool=True
-        ) -> np.ndarray:
+        ) -> npt.NDArray[np.float64]:
 
         self.H = cast(sparse.csr_matrix,self.H)
         E :sparse.csr_matrix = (self.Exist@sparse.diags(a)+1.j*self.Dcos@sparse.diags(v))
@@ -90,19 +93,19 @@ class Observation_Matrix:
             return A
     
     def Exp(self,
-        a :np.ndarray,
-        v :np.ndarray 
+        a :npt.NDArray[np.float64],
+        v :npt.NDArray[np.float64] 
         ) -> sparse.csr_matrix:
 
         E :sparse.csr_matrix = (self.Exist@sparse.diags(a)+1.j*self.Dcos@sparse.diags(v))
         return  E.expm1() + self.Exist
 
     def projection(self,
-        f :np.ndarray,
+        f :npt.NDArray[np.float64],
         reshape:bool=True
-        ) -> np.ndarray: 
+        ) -> npt.NDArray[np.float64]: 
 
-        g: np.ndarray = self.H @ f
+        g: npt.NDArray[np.float64] = self.H @ f
 
         if reshape:
             return g.reshape(self.shape[0:2])
@@ -113,19 +116,23 @@ class Observation_Matrix:
         self.H = cast(sparse.csr_matrix,self.H)
         return self.H.toarray()
 
-    def set_mask(self,mask:np.ndarray):
+    def set_mask(self,
+        mask : npt.NDArray[np.bool_]
+        )->sparse.csr_matrix:
+        
         if np.all(mask == True):
-            return self.H
+            return sparse.csr_matrix(self.H)
+        
         H_d = self.toarray()
         H_d_masked = H_d[mask.flatten(),:]
         return sparse.csr_matrix(H_d_masked)
 
 
 def cal_refractive_indices_metal2(
-    cos_i: Union[np.ndarray,float], 
+    cos_i: float_numpy, 
     n_R  : float = 1.7689, #for 400nm
     n_I  : float = 0.60521 #for 400nm
-    ) -> Union[np.ndarray,float]:
+    ) -> float_numpy:
     """""
     金属の反射率を計算する．
     :param cos_i: cos θ 
@@ -139,8 +146,11 @@ def cal_refractive_indices_metal2(
           /(cos_i + np.sqrt((n_R**2 - n_I**2 - sin_i**2) + 2j*n_I*n_R))
     r_TM = (-(n_R**2 - n_I**2 + 2j*n_R*n_I)*cos_i + np.sqrt((n_R**2 - n_I**2 - sin_i**2) + 2j*n_I*n_R))\
           /((n_R**2 - n_I**2 + 2j*n_R*n_I) *cos_i + np.sqrt((n_R**2 - n_I**2 - sin_i**2) + 2j*n_I*n_R))
-    return (np.abs(r_TE)**2+ np.abs(r_TM)**2)/2
-    
+    return (np.abs(r_TE)**2+ np.abs(r_TM)**2)/2 # type: ignore
+
+from typing import TypeAlias
+
+
 class Observation_Matrix_integral:
 
     indices = {'400nm':(1.7689 ,0.60521),
@@ -173,12 +183,12 @@ class Observation_Matrix_integral:
     def __init__(self,
         H_list: List[Observation_Matrix],
         ray0  : rt1raytrace.Ray,
-        rI    : np.ndarray,
-        zI    : np.ndarray) -> None:
+        rI    : npt.NDArray[np.float64],
+        zI    : npt.NDArray[np.float64]) -> None:
         self.shape :tuple = H_list[0].shape 
         self.n  = len(H_list)
         self.mask = np.ones(self.shape[0:2],dtype=np.bool_)
-        self.refs = [1.]*self.n
+        self.refs :list[npt.NDArray[np.float64]] = self.n*[np.empty(0)]
         self.ray_init = ray0
         self.Hs = H_list
         self.rI = rI 
@@ -193,7 +203,7 @@ class Observation_Matrix_integral:
         pass 
 
     def set_mask(self,
-        mask : Optional[np.ndarray] = None 
+        mask : Optional[npt.NDArray[np.bool_]] = None 
         ) -> None :
         #self.is_mask = True
         if not mask is None:
@@ -209,7 +219,7 @@ class Observation_Matrix_integral:
             cos_factor = np.nan_to_num(self.Hs[i].ray.cos_factor)
             self.refs[i] = cal_refractive_indices_metal2(cos_factor,n_R,n_I)
 
-    def set_fn_ref(self,fn: Callable[[np.ndarray,np.ndarray],Tuple[np.ndarray,np.ndarray]]):
+    def set_fn_ref(self,fn: Callable):
         for i in range(1,self.n):
             Phi_ref = self.Hs[i].ray.Phi0
             Z_ref = self.Hs[i].ray.Z0
@@ -219,10 +229,10 @@ class Observation_Matrix_integral:
         pass
     
     def set_Hsum(self,
-        mask: Optional[np.ndarray] = None 
+        mask: Optional[npt.NDArray[np.bool_]] = None 
         ) -> None :
 
-        self.H_sum :sparse.csr_matrix = 0. # type: ignore
+        self.H_sum = sparse.csr_matrix(np.empty(0)) 
 
         if not mask is None:
             self.set_mask(mask)
@@ -237,9 +247,9 @@ class Observation_Matrix_integral:
             self.H_sum += ref @ H
 
     def projection(self,
-        f :np.ndarray,
+        f :npt.NDArray[np.float64],
         reshape:bool=True
-        ) -> np.ndarray: 
+        ) -> npt.NDArray[np.float64]: 
 
         if reshape:
             g = np.zeros(self.mask.shape)
@@ -282,24 +292,24 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         print('you have to "create_induced_point()" or "set_induced_point()" next.')
 
     def create_induced_point(self,
-        z_grid: np.ndarray,
-        r_grid: np.ndarray,
-        length_sq_fuction: Callable[[np.ndarray,np.ndarray],np.ndarray],
+        z_grid: npt.NDArray[np.float64],
+        r_grid: npt.NDArray[np.float64],
+        length_sq_fuction: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]],
         boundary = 0, 
-        ) -> Tuple[np.ndarray,np.ndarray] | None:     
+        ) -> Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]] | None:     
         """
         create induced point based on length scale function
 
         Parameters
         ----------
-        z_grid: np.ndarray,
-        r_grid: np.ndarray,
+        z_grid: npt.NDArray[np.float64],
+        r_grid: npt.NDArray[np.float64],
         length_sq_fuction: Callable[[float,float],None],
 
         Reuturns
         ----------
-        zI: np.ndarray,
-        rI: np.ndarray,  
+        zI: npt.NDArray[np.float64],
+        rI: npt.NDArray[np.float64],  
         """
         
         if not 'r_bound'  in dir(self):
@@ -335,26 +345,26 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
         self.zI, self.rI = zI, rI
         self.nI = rI.size
-        self.length_scale_sq: Callable[[np.ndarray,np.ndarray],np.ndarray]= length_sq_fuction 
+        self.length_scale_sq: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]]= length_sq_fuction 
         print('num of induced point is ',self.nI)
         return zI, rI
 
     def grid_input(self, 
-        R: np.ndarray, 
-        Z: np.ndarray, 
+        R: npt.NDArray[np.float64], 
+        Z: npt.NDArray[np.float64], 
         fill_point: Tuple[float, float] = (0.5,0), 
         fill_point_2nd: Optional[Tuple[float, float]] = None, 
         isnt_print: bool = False
-        ) -> Tuple[np.ndarray, dict]:
+        ) -> Tuple[npt.NDArray[np.float64], dict]:
         mask,extent = self.__grid_input(R, Z, fill_point, fill_point_2nd, isnt_print)
         """
         this functions is to return 'mask' and 'imshow_kwargs' np.array for imshow plottting
 
         Parameters
         ----------
-        R: np.ndarray,
+        R: npt.NDArray[np.float64],
             array of R axis with 1dim
-        Z: np.ndarray,
+        Z: npt.NDArray[np.float64],
             array of Z axis with 1dim
 
         fill_point: Tuple[float,float] = (0.5,0), optional,
@@ -470,11 +480,11 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             fig.savefig(name+'.png')
 
     def load_point(self,
-        rI: np.ndarray,
-        zI: np.ndarray,
-        rb: np.ndarray,
-        zb: np.ndarray,
-        length_sq_fuction: Callable[[np.ndarray,np.ndarray],np.ndarray],
+        rI: npt.NDArray[np.float64],
+        zI: npt.NDArray[np.float64],
+        rb: npt.NDArray[np.float64],
+        zb: npt.NDArray[np.float64],
+        length_sq_fuction: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]],
         is_plot: bool = False,
         ) :  
         """
@@ -482,15 +492,15 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
         Parameters
         ----------
-        zI: np.ndarray,
-        rI: np.ndarray,
+        zI: npt.NDArray[np.float64],
+        rI: npt.NDArray[np.float64],
         length_sq_fuction: Callable[[float,float],None]
         """
         self.zI, self.rI = zI, rI
         self.z_bound, self.r_bound = zb, rb
         self.nI = rI.size
         self.nb = rb.size
-        self.length_scale_sq: Callable[[np.ndarray,np.ndarray],np.ndarray] = length_sq_fuction 
+        self.length_scale_sq: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]] = length_sq_fuction 
         self.Lsq_I = self.length_scale_sq(self.rI,self.zI) 
         if is_plot:
             fig,ax = plt.subplots(1,2,figsize=(10,5))
@@ -509,7 +519,6 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             mask, im_kwargs = self.grid_input(R=r_plot, Z=z_plot)
 
             LS = self.length_scale(R,Z)
-
             contourf_cbar(ax[0],LS*mask,cmap='turbo',**im_kwargs)
 
 
@@ -530,7 +539,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         delta_l = 1e-2,
         is_change_local_variable
         :bool=True
-        ) -> tuple[np.ndarray,np.ndarray] :
+        ) -> tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]] :
         """
         create induced point with equal space 
 
@@ -588,35 +597,35 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
 
     def set_induced_point(self,
-        zI: np.ndarray,
-        rI: np.ndarray,
-        length_sq_fuction: Callable[[np.ndarray,np.ndarray],np.ndarray],
+        zI: npt.NDArray[np.float64],
+        rI: npt.NDArray[np.float64],
+        length_sq_fuction: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]],
         ) :     
         """
         set induced point by input existing data
 
         Parameters
         ----------
-        zI: np.ndarray,
-        rI: np.ndarray,
+        zI: npt.NDArray[np.float64],
+        rI: npt.NDArray[np.float64],
         length_sq_fuction: Callable[[float,float],None]
         """
         self.zI, self.rI = zI, rI
         self.nI = rI.size
-        self.length_scale_sq: Callable[[np.ndarray,np.ndarray],np.ndarray] = length_sq_fuction 
+        self.length_scale_sq: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]] = length_sq_fuction 
         self.Lsq_I = self.length_scale_sq(self.rI,self.zI) 
     
     def length_scale(self,r,z):
         return np.sqrt(self.length_scale_sq(r,z))
     
     def set_grid_interface(self,
-        z_medium   : np.ndarray,
-        r_medium   : np.ndarray,
-        z_plot: np.ndarray |list[None] = [None],
-        r_plot: np.ndarray |list[None] = [None],
+        z_medium   : npt.NDArray[np.float64],
+        r_medium   : npt.NDArray[np.float64],
+        z_plot: npt.NDArray[np.float64] |list[None] = [None],
+        r_plot: npt.NDArray[np.float64] |list[None] = [None],
         scale    : float = 1,
         add_bound :bool=False,
-        )  :
+        ) :
         
         if not 'rI'  in dir(self):
             print('set_induced_point() or create_induced_point() is to be done in advance')
@@ -668,7 +677,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             
     def convert_grid_media(self,
-        fI:np.ndarray,
+        fI:npt.NDArray[np.float64],
         boundary:float=0
         ):
         if self.add_bound:
@@ -678,14 +687,15 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
     
     def convert_grid(self, 
-        fI:np.ndarray,
+        fI:npt.NDArray[np.float64],
         boundary:float=0,
-        ) -> Tuple[np.ndarray,np.ndarray,dict]:
+        ) -> Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64],dict]:
         f1, _,_,  = self.convert_grid_media(fI,boundary)
         fHD = self.KzHDz1 @ (self.Q_z1 @ (self.Λ_z1r1_inv * (self.Q_z1.T @ f1 @ self.Q_r1)) @ self.Q_r1.T) @ self.KrHDr1.T
         return fHD, self.mask, self.im_kwargs
     
-    def __grid_input(self, R: np.ndarray, Z: np.ndarray, fill_point: Tuple[float, float] = ..., fill_point_2nd: Optional[Tuple[float, float]] = None, isnt_print: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+    def __grid_input(self, R: npt.NDArray[np.float64], Z: npt.NDArray[np.float64], fill_point: Tuple[float, float] = ..., fill_point_2nd: Optional[Tuple[float, float]] = None, isnt_print: bool = False
+        ) -> Tuple[npt.NDArray[np.float64], tuple]:
         return super().grid_input(R, Z, fill_point, fill_point_2nd, isnt_print)
 
         
@@ -729,7 +739,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         bound_value : float=0,
         bound_sig : float = 0.1,
         bound_space : float = 1e-2,
-        )->Tuple[np.ndarray,np.ndarray]:
+        )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
 
         ls = length_scale
         lI = ls*self.length_scale(self.rI,self.zI)
@@ -760,9 +770,9 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         bound_value : float=-2,
         bound_sig : float = 0.05,
         bound_space : float = 1e-1,
-        zero_value_index : np.ndarray |None = None, # requres b
+        zero_value_index : npt.NDArray[np.bool_] |None = None, # requres b
         separatrix :bool =False,
-        )->Tuple[np.ndarray,np.ndarray]:
+        )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
 
         self.property_K = { 'psi_scale'  : psi_scale,
                             'B_scale'    : B_scale,
@@ -825,9 +835,9 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         return Kflux_pri,mu_f_pri
     
     def sampler(self,
-        K   : Optional[np.ndarray]=None,
-        mu_f: np.ndarray | float = 0.
-        ) -> np.ndarray:
+        K   : Optional[npt.NDArray[np.float64]]=None,
+        mu_f: npt.NDArray[np.float64] | float = 0.
+        ) -> npt.NDArray[np.float64]:
 
         if K is None:
             K = self.Kf_pri
@@ -852,8 +862,8 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
     
     def plot_mosaic(self,
         ax:plt.Axes,      
-        f:np.ndarray,
-        size :float = 1.0,
+        f:npt.NDArray[np.float64],
+        size :float = 1.0, # type: ignore
         back_ground:float | None =None,
         cbar_title: str|None = None,
         is_frame:bool=True,
@@ -861,7 +871,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         )->None:
 
         if back_ground is not None:
-            cmap = None
+            cmap:str = 'viridis'
             alpha =1.0
             vmax = f.max()
             vmin = f.min()
@@ -870,13 +880,13 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             if 'vmin' in kwargs_scatter:
                 vmin = kwargs_scatter['vmin']
             if 'cmap' in kwargs_scatter:
-                cmap = kwargs_scatter['cmap']
+                cmap = str(kwargs_scatter['cmap'])
             if 'alpha' in kwargs_scatter:
                 alpha = kwargs_scatter['alpha']
             
             ax.imshow(back_ground*self.mask,cmap=cmap,vmax=vmax,vmin=vmin,**self.im_kwargs)
         
-        size = size**2*1e5*self.Lsq_I
+        size:npt.NDArray[np.float64] = size**2*1e5 *self.Lsq_I
         im = ax.scatter(x=self.rI,y=self.zI,c=f,s=size,**kwargs_scatter)
         divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)
         cax = divider.append_axes('right' , size="5%", pad='3%')
@@ -900,16 +910,16 @@ def SEKer(x0,x1,y0,y1,lx,ly):
     return np.exp(- 0.5*( ((X[0]-X[1])/lx)**2 + ((Y[0]-Y[1])/ly)**2) )
 
 def GibbsKer(
-    x0 : np.ndarray,
-    x1 : np.ndarray,
-    y0 : np.ndarray,
-    y1 : np.ndarray,
-    lx0: np.ndarray,
-    lx1: np.ndarray,
-    ly0: np.ndarray | bool  = False,
-    ly1: np.ndarray | bool  = False,
+    x0 : npt.NDArray[np.float64],
+    x1 : npt.NDArray[np.float64],
+    y0 : npt.NDArray[np.float64],
+    y1 : npt.NDArray[np.float64],
+    lx0: npt.NDArray[np.float64],
+    lx1: npt.NDArray[np.float64],
+    ly0: npt.NDArray[np.float64] | bool  = False,
+    ly1: npt.NDArray[np.float64] | bool  = False,
     isotropy: bool = False
-    ) -> np.ndarray:  
+    ) -> npt.NDArray[np.float64]:  
 
     X  = np.meshgrid(x0,x1,indexing='ij')
     Y  = np.meshgrid(y0,y1,indexing='ij')
@@ -922,17 +932,17 @@ def GibbsKer(
     else:
         Ly = np.meshgrid(ly0,ly1,indexing='ij')
         Lysq = Ly[0]**2+Ly[1]**2 
-        return np.sqrt(2*Lx[0]*Lx[1]/Lxsq)*np.sqrt(2*Ly[0]*Ly[1]/Lysq)*np.exp( -   (X[0]-X[1])**2 / Lxsq  - (Y[0]-Y[1])**2 / Lysq )
+        return np.sqrt(2*Lx[0]*Lx[1]/Lxsq) *np.sqrt(2*Ly[0]*Ly[1]/Lysq) *np.exp( -(X[0]-X[1])**2 / Lxsq  - (Y[0]-Y[1])**2 / Lysq )# type: ignore
 
 @njit
 def GibbsKer_fast(
-    x0 : np.ndarray,
-    x1 : np.ndarray,
-    y0 : np.ndarray,
-    y1 : np.ndarray,
-    lx0: np.ndarray,
-    lx1: np.ndarray,
-    ) -> np.ndarray:  
+    x0 : npt.NDArray[np.float64],
+    x1 : npt.NDArray[np.float64],
+    y0 : npt.NDArray[np.float64],
+    y1 : npt.NDArray[np.float64],
+    lx0: npt.NDArray[np.float64],
+    lx1: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]:  
 
     X  = np.meshgrid(x0,x1,indexing='ij')
     Y  = np.meshgrid(y0,y1,indexing='ij')
