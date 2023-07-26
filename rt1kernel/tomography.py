@@ -317,6 +317,7 @@ class GPT_av:
         A_cos:np.ndarray,
         A_sin:np.ndarray,
         num:int=0,
+        sig_scale:float = 1.0,
         ):
         sigma = sigma.flatten()
         A_cos = A_cos.flatten()
@@ -333,13 +334,13 @@ class GPT_av:
     def calc_core(self,
         a:np.ndarray,
         v:np.ndarray,
-        num:int=0
+        num:int=0,
+        sig_scale:float = 1.0
         ):
-        import time
         r_a = a - self.a_pri
         r_v = v - self.v_pri
         
-        ### preprocess ###
+        sig_scale_inv = 1/sig_scale
         DecV = sps.csr_matrix(self.Dec @ sps.diags(v))
         Hc = self.sigiH.multiply(csr_cos(DecV,self.Exist))
         Hs = self.sigiH.multiply(DecV.sin())
@@ -349,7 +350,7 @@ class GPT_av:
         Ac = np.asarray(self.Rc.sum(axis=1)).flatten()
         As = np.asarray(self.Rs.sum(axis=1)).flatten()
         sigi_g  = np.hstack((Ac,As))
-        self.resA = sigi_g-self.sigiA
+        self.resA = sig_scale_inv *(sigi_g-self.sigiA)
 
         self.Rc_Dec = self.Rc.multiply(self.Dec)
         self.Rs_Dec = self.Rs.multiply(self.Dec)
@@ -357,7 +358,7 @@ class GPT_av:
         Jac = sps.vstack(
                 (sps.hstack((self.Rc, -self.Rs_Dec)),
                  sps.hstack((self.Rs,  self.Rc_Dec)))
-                )
+                ) *sig_scale_inv
         
         Jac_t = sps.csr_matrix(Jac.T)
         
@@ -371,7 +372,7 @@ class GPT_av:
         # W2 = self._W2()
 
         laplace_Phi = - W1  - self.K_f_inv # -W2*1
-        
+        self.laplace_Phi = laplace_Phi
         delta_f = - np.linalg.solve(laplace_Phi, nabla_Phi)
         delta_f[delta_f<-3] = -3
         delta_f[delta_f>+3] = +3 
@@ -379,6 +380,15 @@ class GPT_av:
         delta_a = delta_f[:self.nI]
         delta_v = delta_f[self.nI:]
         return delta_a, delta_v
+    
+    def K_pos(self,
+        consider_w2 :bool = True,
+        ):
+        if consider_w2:
+            K_inv = -self.laplace_Phi+self._W2()
+        else:
+            K_inv = -self.laplace_Phi
+        return np.linalg.inv(K_inv)
 
     def _W2(self,
         ):
@@ -403,11 +413,17 @@ class GPT_av:
     def check_diff(self,
         a:np.ndarray,
         v:np.ndarray):
-            
-        fig,ax = plt.subplots(1,2,figsize=(10,5))
+        m = self.H.shape[0]
+        fig,ax = plt.subplots(2,2,figsize=(10,8),sharex=True,sharey=True)
         A = self.Obs.Hs[0].projection_A2(a,v)
-        imshow_cbar(ax[0],A.real)
-        imshow_cbar(ax[1],A.imag)
+        g_cos,g_sin = A.real,A.imag
+        y = self.sigiA
+        y_cos = (1/self.sig_inv*y[:m]).reshape(*self.Obs.shape[:2])
+        y_sin = (1/self.sig_inv*y[m:]).reshape(*self.Obs.shape[:2])
+        imshow_cbar(ax[0,0],g_cos)
+        imshow_cbar(ax[1,0],g_sin)
+        imshow_cbar(ax[0,1],g_cos-y_cos,cmap='RdBu_r',vmax=0.5,vmin=-0.5)
+        imshow_cbar(ax[1,1],g_sin-y_sin,cmap='RdBu_r',vmax=0.5,vmin=-0.5)
         
         plt.show()
 
