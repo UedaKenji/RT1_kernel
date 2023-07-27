@@ -288,6 +288,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         super().__init__(dxf_file,show_print)
         self.im_shape: Union[Tuple[int,int],None] = None
         self.V = None
+
         print('you have to "create_induced_point()" or "set_induced_point()" next.')
 
     def create_induced_point(self,
@@ -340,7 +341,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
                         rI = np.append(rI,ri)
                         zI = np.append(zI,zi)                    
 
-        rI,zI = rI[1:], zI[1:]
+        rI,zI = cast(npt.NDArray[np.float64],rI[1:]), cast(npt.NDArray[np.float64],zI[1:])
 
         self.zI, self.rI = zI, rI
         self.nI = rI.size
@@ -400,15 +401,17 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
                  zI=self.zI)
 
         if is_plot:
-            fig,ax = plt.subplots(1,2,figsize=figsize)
+            fig = plt.figure(figsize=(10,5))
+            axs = fig.subplots(1,2)
+            axs:list[plt.Axes] = np.array(axs).tolist()
             ax_kwargs = {'xlim'  :(0,1.1),
                         'ylim'  :(-0.7,0.7), 
                         'aspect': 'equal'
                             }
-            ax[1].set(**ax_kwargs)
-            ax[0].set(**ax_kwargs)
-            self.append_frame(ax[0])
-            self.append_frame(ax[1])
+            axs[1].set(**ax_kwargs)
+            axs[0].set(**ax_kwargs)
+            self.append_frame(axs[0])
+            self.append_frame(axs[1])
                         
             r_plot = np.linspace(0.05,1.05,500)
             z_plot = np.linspace(-0.7,0.7,500)
@@ -417,15 +420,15 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             LS = self.length_scale(R,Z)
 
-            contourf_cbar(ax[0],LS*mask,cmap='turbo',**im_kwargs)
+            contourf_cbar(axs[0],LS*mask,cmap='turbo',**im_kwargs)
 
-            ax[0].set_title('Length scale distribution',size=15)
-            ax[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
+            axs[0].set_title('Length scale distribution',size=15)
+            axs[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
                 
             title = 'Inducing ponit: '+ str(self.nI)
 
-            ax[1].set_title(title,size=15)
-            ax[1].legend(fontsize=12)
+            axs[1].set_title(title,size=15)
+            axs[1].legend(fontsize=12)
 
             fig.suptitle(name)
             fig.savefig(name+'.png')
@@ -444,15 +447,17 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         print('inducing points: '+str(self.nI)+' and boundary points: '+str(self.nb)+' are correctly saved at '+name)
 
         if is_plot:
-            fig,ax = plt.subplots(1,2,figsize=figsize)
+            fig = plt.figure(figsize=figsize)
+            axs = fig.subplots(1,2)
+            axs:list[plt.Axes] = np.array(axs).tolist()
             ax_kwargs = {'xlim'  :(0,1.1),
                         'ylim'  :(-0.7,0.7), 
                         'aspect': 'equal'
                             }
-            ax[1].set(**ax_kwargs)
-            ax[0].set(**ax_kwargs)
-            self.append_frame(ax[0])
-            self.append_frame(ax[1])
+            axs[1].set(**ax_kwargs)
+            axs[0].set(**ax_kwargs)
+            self.append_frame(axs[0])
+            self.append_frame(axs[1])
                         
             r_plot = np.linspace(0.05,1.05,500)
             z_plot = np.linspace(-0.7,0.7,500)
@@ -462,18 +467,18 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             LS = self.length_scale(R,Z)
 
 
-            contourf_cbar(ax[0],LS*mask,cmap='turbo',**im_kwargs)  
+            contourf_cbar(axs[0],LS*mask,cmap='turbo',**im_kwargs)  
 
-            ax[0].set_title('Length scale distribution',size=15)
+            axs[0].set_title('Length scale distribution',size=15)
                 
-            ax[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
+            axs[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
             title = 'Inducing ponit: '+ str(self.nI)
             if 'r_bound'  in dir(self):
-                ax[1].scatter(self.r_bound, self.z_bound,s=1,label='boundary_point')
+                axs[1].scatter(self.r_bound, self.z_bound,s=1,label='boundary_point')
                 title += '\nBoundary ponit: '+ str(self.nb)
 
-            ax[1].set_title(title,size=15)
-            ax[1].legend(fontsize=12)
+            axs[1].set_title(title,size=15)
+            axs[1].legend(fontsize=12)
 
             fig.suptitle(name)
             fig.savefig(name+'.png')
@@ -502,15 +507,18 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         self.length_scale_sq: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]] = length_sq_fuction 
         self.Lsq_I = self.length_scale_sq(self.rI,self.zI) 
         if is_plot:
-            fig,ax = plt.subplots(1,2,figsize=(10,5))
+            fig = plt.figure(figsize=(10,5))
+            axs = fig.subplots(1,2)
+            axs:list[plt.Axes] = np.array(axs).tolist()
+
             ax_kwargs = {'xlim'  :(0,1.1),
                         'ylim'  :(-0.7,0.7), 
                         'aspect': 'equal'
                             }
-            ax[1].set(**ax_kwargs)
-            ax[0].set(**ax_kwargs)
-            self.append_frame(ax[0])
-            self.append_frame(ax[1])
+            axs[1].set(**ax_kwargs)
+            axs[0].set(**ax_kwargs)
+            self.append_frame(axs[0])
+            self.append_frame(axs[1])
                         
             r_plot = np.linspace(0.05,1.05,500)
             z_plot = np.linspace(-0.7,0.7,500)
@@ -518,19 +526,19 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             mask, im_kwargs = self.grid_input(R=r_plot, Z=z_plot)
 
             LS = self.length_scale(R,Z)
-            contourf_cbar(ax[0],LS*mask,cmap='turbo',**im_kwargs)
+            contourf_cbar(axs[0],LS*mask,cmap='turbo',**im_kwargs)
 
 
-            ax[0].set_title('Length scale distribution',size=15)
+            axs[0].set_title('Length scale distribution',size=15)
                 
-            ax[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
+            axs[1].scatter(self.rI,self.zI,s=1,label='inducing_point')
             title = 'Inducing ponit: '+ str(self.nI)
             if 'r_bound'  in dir(self):
-                ax[1].scatter(self.r_bound, self.z_bound,s=1,label='boundary_point')
+                axs[1].scatter(self.r_bound, self.z_bound,s=1,label='boundary_point')
                 title += '\nBoundary ponit: '+ str(self.nb)
 
-            ax[1].set_title(title,size=15)
-            ax[1].legend(fontsize=12)
+            axs[1].set_title(title,size=15)
+            axs[1].legend(fontsize=12)
 
 
     
@@ -620,8 +628,8 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
     def set_grid_interface(self,
         z_medium   : npt.NDArray[np.float64],
         r_medium   : npt.NDArray[np.float64],
-        z_plot: npt.NDArray[np.float64] |list[None] = [None],
-        r_plot: npt.NDArray[np.float64] |list[None] = [None],
+        z_plot: npt.NDArray[np.float64] | None = None,
+        r_plot: npt.NDArray[np.float64] | None = None,
         scale    : float = 1,
         add_bound :bool=False,
         ) :
@@ -656,13 +664,14 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
 
         
-        if z_plot[0] == None:
+        if z_plot is None or r_plot is None:
             return 
         else:
+            self.r_plot,self.z_plot = r_plot,z_plot
             dr, dz = r_medium[1]-r_medium[0],   z_medium[1]-z_medium[0]
 
-            Kr1r1 = SEKer(x0=r_medium ,x1=r_medium, y0=0, y1=0, lx=dr, ly=1)
-            Kz1z1 = SEKer(x0=z_medium ,x1=z_medium, y0=0, y1=0, lx=dz, ly=1)
+            Kr1r1 = SEKer(x0=r_medium ,x1=r_medium, y0=0., y1=0., lx=dr, ly=1)
+            Kz1z1 = SEKer(x0=z_medium ,x1=z_medium, y0=0., y1=0., lx=dz, ly=1)
             
             λ_r1, self.Q_r1 = np.linalg.eigh(Kr1r1)
             λ_z1, self.Q_z1 = np.linalg.eigh(Kz1z1)
@@ -733,52 +742,145 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         return Observation_Matrix(H=H, ray=ray)
 
     def set_kernel(self,
+                   
         length_scale:float=1,
         is_bound :bool=True ,
         bound_value : float=0,
         bound_sig : float = 0.1,
         bound_space : float = 1e-2,
+        is_static_kernel:bool = True,  
+
         )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
 
+        """
+
+        Parameters
+        ----------
+        length_scale     :,
+        is_bound         : Trueのとき境界条件が定められる。,
+        bound_value      :,
+        bound_sig        :,
+        bound_space      :,
+        is_static_kernel : TrueのときオブジェクトにKf_priとmuf_priが保存される。,
+
+        Reuturns
+        ----------
+        K_ff_pri: hoge,
+        mu_f_pri: hoge,
+
+        """
         ls = length_scale
         lI = ls*self.length_scale(self.rI,self.zI)
-        KII = GibbsKer(x0=self.rI     , x1=self.rI     , y0=self.zI     , y1=self.zI     , lx0=lI*ls, lx1=lI*ls, isotropy=True)
-        if not is_bound: return KII, (fpri:=np.zeros_like(self.rI))
+        Kii = GibbsKer(x0=self.rI     , x1=self.rI     , y0=self.zI     , y1=self.zI     , lx0=lI*ls, lx1=lI*ls, isotropy=True)
+        if not is_bound: 
+            mu_f_pri = np.zeros_like(self.rI)
+            Kf_pri = Kii 
+        else:
+            rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
+            lb = ls*self.length_scale(rb,zb)
+            KIb = GibbsKer(x0=self.rI, x1=rb, y0=self.zI, y1=zb, lx0=lI*ls, lx1=lb*ls, isotropy=True)
+            Kbb = GibbsKer(x0=rb     , x1=rb, y0=zb     , y1=zb, lx0=lb*ls, lx1=lb*ls, isotropy=True)
+            Kbb+= bound_sig**2*np.eye(rb.size)
 
-        rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
-        lb = ls*self.length_scale(rb,zb)
-        KIb = GibbsKer(x0=self.rI, x1=rb, y0=self.zI, y1=zb, lx0=lI*ls, lx1=lb*ls, isotropy=True)
-        Kbb = GibbsKer(x0=rb     , x1=rb, y0=zb     , y1=zb, lx0=lb*ls, lx1=lb*ls, isotropy=True)
-        Kbb+= bound_sig**2*np.eye(rb.size)
+            Kb = Kii - KIb @ np.linalg.inv(Kbb) @ KIb.T
+            Kf_pri  = Kb
+            mu_f_pri  = KIb @ (np.linalg.inv(Kbb) @ (bound_value*np.ones(rb.size)))
+            
 
-        Kb = KII - KIb @ np.linalg.inv(Kbb) @ KIb.T
-        mu_f_pri  = KIb @ (np.linalg.inv(Kbb) @ (bound_value*np.ones(rb.size)))
+        if is_static_kernel:
+            self.Kf_pri = Kf_pri
+            self.muf_pri = mu_f_pri 
+            self.kernel_type = 'isotropic kernel'
+                    
+            self.Kf_pri_property = {
+                #'kernel_type': self.kernel_type,
+                'is_bound'   : is_bound ,
+                #'mean_value' : mean_value,
+                'bound_value': bound_value,
+                'bound_sig'  : bound_sig,
+                'bound_space': bound_space } 
 
+        return Kf_pri,mu_f_pri
         
-        self.Kf_pri = Kb
-        self.muf_pri = mu_f_pri 
-        self.kernel_type = 'isotropic kernel'
+    
+    def set_unifom_kernel(self,
+                          
+        length_scale:float=0.1,
+        is_bound :bool=True ,
+        mean_value : float=0.,
+        bound_value : float=0,
+        bound_sig : float = 0.1,
+        bound_space : float = 1e-2,
+        is_static_kernel:bool = False,  
 
-        return Kb,mu_f_pri
+        )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
+
+        """
+        Parameters
+        ----------
+        length_scale     :
+        is_bound         : Trueのとき境界条件が定められる。
+        mean_value       : 
+        bound_value      :
+        bound_sig        : 
+        bound_space      : 
+        is_static_kernel : TrueのときオブジェクトにKf_priとmuf_priが保存される。
+
+        Reuturns
+        ----------
+        K_ff_pri:
+        mu_f_pri:
+        """
+
+        ls = length_scale
+        Kii = SEKer(x0=self.rI, x1=self.rI, y0=self.zI, y1=self.zI, lx=ls, ly=ls)
+        
+        if not is_bound: 
+            mu_f_pri = mean_value*np.ones_like(self.rI)
+            Kf_pri = Kii 
+        else:
+            rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
+            KIb = SEKer(x0=self.rI, x1=rb, y0=self.zI, y1=zb, lx=ls, ly=ls,)
+            Kbb = SEKer(x0=rb     , x1=rb, y0=zb     , y1=zb, lx=ls, ly=ls,)
+            Kbb+= bound_sig**2*np.eye(rb.size)
+
+            
+            mu_f_pri = mean_value*np.ones_like(self.rI)
+
+            Kb = Kii - KIb @ np.linalg.inv(Kbb) @ KIb.T
+            Kf_pri = Kb
+            mu_f_pri  = mu_f_pri + KIb @ (np.linalg.inv(Kbb) @ (bound_value*np.ones(rb.size)-mean_value))
+
+        if is_static_kernel:
+            self.Kf_pri = Kf_pri
+            self.muf_pri = mu_f_pri 
+            self.kernel_type = 'uniform SE kernel'
+                    
+            self.Kf_pri_property = {
+                #'kernel_type': self.kernel_type,
+                'is_bound'   : is_bound ,
+                'mean_value' : mean_value,
+                'bound_value': bound_value,
+                'bound_sig'  : bound_sig,
+                'bound_space': bound_space } 
+
+
+        return Kf_pri,mu_f_pri
     
     
     def set_flux_kernel(self,
-        psi_scale:float=0.3,
-        B_scale:float=0.3,
-        is_bound :bool=True ,
-        bound_value : float=-2,
-        bound_sig : float = 0.05,
-        bound_space : float = 1e-1,
+                        
+        psi_scale        : float = 0.3,
+        B_scale          : float = 0.3,
+        is_bound         : bool  = True ,
+        bound_value      : float = -2,
+        bound_sig        : float = 0.05,
+        bound_space      : float = 1e-1,
         zero_value_index : npt.NDArray[np.bool_] |None = None, # requres b
-        separatrix :bool =False,
-        )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
+        separatrix       : bool = False,
+        is_static_kernel : bool = False,
 
-        self.property_K = { 'psi_scale'  : psi_scale,
-                            'B_scale'    : B_scale,
-                            'is_bound'   : is_bound ,
-                            'bound_value': bound_value,
-                            'bound_sig'  : bound_sig,
-                            'bound_space': bound_space} 
+        )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
 
         rI,zI = self.rI,self.zI
         psi_i = rt1plotpy.mag.psi(rI,zI,separatrix=separatrix)
@@ -798,39 +900,53 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
                 
         Kflux_ii = np.exp(-0.5*(psi_psi+b_b))
 
-        if not is_bound: return Kflux_ii, (fpri:=np.zeros_like(self.rI))
-
-        if zero_value_index is None:
-            index = np.zeros(self.nI,dtype=bool)
+        if not is_bound:
+            mu_f_pri = np.zeros_like(self.rI)
+            Kflux_pri = Kflux_ii
+        
         else:
-            index = zero_value_index
-                
-        rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
-        zo,ro = np.concatenate([zI[index],zb]), np.concatenate([rI[index],rb])
-                
-        psi_o = rt1plotpy.mag.psi(ro,zo,separatrix=separatrix)
-        br_o,bz_o = rt1plotpy.mag.bvec(ro,zo,separatrix=separatrix)
-        babs_o = np.sqrt(br_o**2+bz_o**2)
-                
+            if zero_value_index is None:
+                index = np.zeros(self.nI,dtype=bool)
+            else:
+                index = zero_value_index
+                    
+            rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
+            zo,ro = np.concatenate([zI[index],zb]), np.concatenate([rI[index],rb])
+                    
+            psi_o = rt1plotpy.mag.psi(ro,zo,separatrix=separatrix)
+            br_o,bz_o = rt1plotpy.mag.bvec(ro,zo,separatrix=separatrix)
+            babs_o = np.sqrt(br_o**2+bz_o**2)
+                    
 
-        Psi_o = np.meshgrid(psi_o,psi_o,indexing='ij') / psi_len
-        lnBabs_o = np.meshgrid(np.log(babs_o),np.log(babs_o),indexing='ij') / b_len
-        Psi_io = np.meshgrid(psi_i,psi_o,indexing='ij') / psi_len
-        lnBabs_io = np.meshgrid(np.log(babs_i),np.log(babs_o),indexing='ij') / b_len
+            Psi_o = np.meshgrid(psi_o,psi_o,indexing='ij') / psi_len
+            lnBabs_o = np.meshgrid(np.log(babs_o),np.log(babs_o),indexing='ij') / b_len
+            Psi_io = np.meshgrid(psi_i,psi_o,indexing='ij') / psi_len
+            lnBabs_io = np.meshgrid(np.log(babs_i),np.log(babs_o),indexing='ij') / b_len
 
-        
-        Kb_oo =  np.exp(-0.5*((Psi_o[0]-Psi_o[1])**2  +(lnBabs_o[0]-lnBabs_o[1])**2))
-        Kb_io =  np.exp(-0.5*((Psi_io[0]-Psi_io[1])**2+(lnBabs_io[0]-lnBabs_io[1])**2))
-        
-        out_sig = bound_sig
-        out_value = bound_value
-        Kb_oo_sig_inv = np.linalg.inv(Kb_oo+out_sig**2*np.eye(ro.size))
-        Kflux_pri = Kflux_ii - Kb_io @ Kb_oo_sig_inv @ Kb_io.T 
-        mu_f_pri  = 0*np.ones(self.nI)+Kb_io @  (Kb_oo_sig_inv @ (out_value*np.ones(ro.size))  ) 
-        
-        self.Kf_pri = Kflux_pri 
-        self.muf_pri = mu_f_pri 
-        self.kernel_type = 'flux kernel'
+            
+            Kb_oo =  np.exp(-0.5*((Psi_o[0]-Psi_o[1])**2  +(lnBabs_o[0]-lnBabs_o[1])**2))
+            Kb_io =  np.exp(-0.5*((Psi_io[0]-Psi_io[1])**2+(lnBabs_io[0]-lnBabs_io[1])**2))
+            
+            out_sig = bound_sig
+            out_value = bound_value
+            Kb_oo_sig_inv = np.linalg.inv(Kb_oo+out_sig**2*np.eye(ro.size))
+            Kflux_pri = Kflux_ii - Kb_io @ Kb_oo_sig_inv @ Kb_io.T 
+            mu_f_pri  = 0*np.ones(self.nI)+Kb_io @  (Kb_oo_sig_inv @ (out_value*np.ones(ro.size))  ) 
+
+        if is_static_kernel:
+            self.Kf_pri = Kflux_pri 
+            self.muf_pri = mu_f_pri 
+            self.kernel_type = 'flux kernel'
+                
+            self.Kf_pri_property = {
+                #'kernel_type': self.kernel_type,
+                'psi_scale'  : psi_scale,
+                'B_scale'    : B_scale,
+                'is_bound'   : is_bound ,
+                'bound_value': bound_value,
+                'bound_sig'  : bound_sig,
+                'bound_space': bound_space } 
+
         return Kflux_pri,mu_f_pri
     
     def sampler(self,
@@ -893,7 +1009,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         if cbar_title is not None: cbar.set_label(cbar_title)
         ax.set_aspect('equal')
         if is_frame: self.append_frame(ax=ax,add_coil=True)
-
+    
 
 
 @njit
@@ -903,7 +1019,15 @@ def d2min(x,y,xs,ys):
     d2_min = np.min(x_tau2 + y_tau2)
     return d2_min
 
-def SEKer(x0,x1,y0,y1,lx,ly):
+def SEKer(
+    x0 : npt.NDArray[np.float64],
+    x1 : npt.NDArray[np.float64],
+    y0 : npt.NDArray[np.float64] |float,
+    y1 : npt.NDArray[np.float64] |float,
+    lx : float,
+    ly : float,
+    ) -> npt.NDArray[np.float64]:
+
     X = np.meshgrid(x0,x1,indexing='ij')
     Y = np.meshgrid(y0,y1,indexing='ij')
     return np.exp(- 0.5*( ((X[0]-X[1])/lx)**2 + ((Y[0]-Y[1])/ly)**2) )

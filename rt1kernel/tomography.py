@@ -317,14 +317,14 @@ class GPT_av:
         A_cos:np.ndarray,
         A_sin:np.ndarray,
         num:int=0,
-        sig_scale:float = 1.0,
+        #sig_scale:float = 1.0,
         ):
         sigma = sigma.flatten()
         A_cos = A_cos.flatten()
         A_sin = A_sin.flatten()
         self.sig_inv = 1/sigma
         self.sig2_inv = 1/sigma**2
-        Dcos  = 1.j*self.Obs.Hs[num].Dcos
+        #Dcos  = 1.j*self.Obs.Hs[num].Dcos
         H    = self.Obs.Hs[num].H
 
         self.sigiH   : sps.csr_matrix = sps.diags(self.sig_inv) @ H  
@@ -414,17 +414,24 @@ class GPT_av:
         a:np.ndarray,
         v:np.ndarray):
         m = self.H.shape[0]
-        fig,ax = plt.subplots(2,2,figsize=(10,8),sharex=True,sharey=True)
+        fig,axs = plt_subplots(2,2,figsize=(8,8),sharex=True,sharey=True)
         A = self.Obs.Hs[0].projection_A2(a,v)
         g_cos,g_sin = A.real,A.imag
         y = self.sigiA
         y_cos = (1/self.sig_inv*y[:m]).reshape(*self.Obs.shape[:2])
         y_sin = (1/self.sig_inv*y[m:]).reshape(*self.Obs.shape[:2])
-        imshow_cbar(ax[0,0],g_cos)
-        imshow_cbar(ax[1,0],g_sin)
-        imshow_cbar(ax[0,1],g_cos-y_cos,cmap='RdBu_r',vmax=0.5,vmin=-0.5)
-        imshow_cbar(ax[1,1],g_sin-y_sin,cmap='RdBu_r',vmax=0.5,vmin=-0.5)
+        imshow_cbar(axs[0][0],g_cos)
+        imshow_cbar(axs[1][0],g_sin)
+        diff1 = g_cos-y_cos
+        diff2 = g_sin-y_sin
+        vmax = max(np.percentile(diff1,95),-np.percentile(diff1,5),np.percentile(diff2,95),-np.percentile(diff2,5)) #type: ignore
+        imshow_cbar(axs[0][1],g_cos-y_cos,cmap='RdBu_r',vmax=vmax,vmin=-vmax)
+        imshow_cbar(axs[1][1],g_sin-y_sin,cmap='RdBu_r',vmax=vmax,vmin=-vmax)
         
+        axs[0][0].set_title(r'$g^{\cos}$')
+        axs[1][0].set_title(r'$g^{\sin}$')
+        axs[0][1].set_title(r'diff: $g^{\cos}-y^{\cos}$')
+        axs[1][1].set_title(r'diff: $g^{\sin}-y^{\sin}$')
         plt.show()
 
 
