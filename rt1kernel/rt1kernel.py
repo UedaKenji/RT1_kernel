@@ -21,9 +21,9 @@ from .plot_utils import *
 sys.path.insert(0,os.pardir)
 import rt1raytrace
 
-__all__ = ['Kernel2D_scatter', 
-           'Kernel2D_grid', 
+__all__ = ['Kernel2D_scatter',
            'Kernel1D',
+           'Kernel2D_grid',
            'Observation_Matrix_integral',
            'Observation_Matrix_integral_load_model']
 
@@ -286,7 +286,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         dxf_file is required to have units of (mm).
         """
         super().__init__(dxf_file,show_print)
-        self.im_shape: Union[Tuple[int,int],None] = None
+        #self.im_shape: Union[Tuple[int,int],None] = None
         self.V = None
 
         print('you have to "create_induced_point()" or "set_induced_point()" next.')
@@ -711,7 +711,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         ray  : rt1raytrace.Ray,
         Lnum : int=100
         ) ->  Observation_Matrix:
-        self.im_shape = ray.shape
+        self.im_shape:tuple = ray.shape
 
         H = np.zeros((ray.shape[0], ray.shape[1], self.rI.size))
 
@@ -749,6 +749,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         bound_sig : float = 0.1,
         bound_space : float = 1e-2,
         is_static_kernel:bool = True,  
+        mean: float= 0,
 
         )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
 
@@ -784,7 +785,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             Kb = Kii - KIb @ np.linalg.inv(Kbb) @ KIb.T
             Kf_pri  = Kb
-            mu_f_pri  = KIb @ (np.linalg.inv(Kbb) @ (bound_value*np.ones(rb.size)))
+            mu_f_pri  = mean + KIb @ (np.linalg.inv(Kbb) @ (bound_value*np.ones(rb.size)-mean))
             
 
         if is_static_kernel:
@@ -855,6 +856,84 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             self.Kf_pri = Kf_pri
             self.muf_pri = mu_f_pri 
             self.kernel_type = 'uniform SE kernel'
+                    
+            self.Kf_pri_property = {
+                #'kernel_type': self.kernel_type,
+                'is_bound'   : is_bound ,
+                'mean_value' : mean_value,
+                'bound_value': bound_value,
+                'bound_sig'  : bound_sig,
+                'bound_space': bound_space } 
+
+
+        return Kf_pri,mu_f_pri
+    
+    def set_laplace_kernel(self,     
+        del_r :float = 1.,
+        is_bound :bool=True,
+        mean_value : float=0.,
+        bound_value : float=0,
+        bound_sig : float = 0.1,
+        bound_space : float = 1e-2,
+        is_static_kernel:bool = False,  
+
+        )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
+
+        """
+        Parameters
+        ----------
+        length_scale     :
+        is_bound         : Trueのとき境界条件が定められる。
+        mean_value       : 
+        bound_value      :
+        bound_sig        : 
+        bound_space      : 
+        is_static_kernel : TrueのときオブジェクトにKf_priとmuf_priが保存される。
+
+        Reuturns
+        ----------
+        K_ff_pri:
+        mu_f_pri:
+        """
+        def logKer(x0,x1,y0,y1,rsq0,rsq1):
+            X0,X1 = np.meshgrid(x0,x1,indexing='ij')
+            Y0,Y1 = np.meshgrid(y0,y1,indexing='ij')
+            Rsq0,Rsq1 = np.meshgrid(rsq0,rsq1,indexing='ij')
+
+            r = np.sqrt((X0-X1)**2+(Y0-Y1)**2)
+            is_zero = r < 1e-5
+            r[is_zero] = 1,
+            Rsq = np.sqrt(Rsq0*Rsq1)
+            K = -1/2/np.pi*np.log(r)*Rsq
+            Rsq_0 = Rsq[is_zero]
+            K[is_zero] = -1/4*Rsq_0**2*(2*np.log(Rsq_0)-1)
+
+            return ((K-K.min())*del_r)**2
+            
+        Lsq_I = self.length_scale_sq(self.rI,self.zI)
+        Kii = logKer(x0=self.rI, x1=self.rI, y0=self.zI, y1=self.zI,rsq0=Lsq_I,rsq1=Lsq_I)
+        
+        if not is_bound: 
+            mu_f_pri = mean_value*np.ones_like(self.rI)
+            Kf_pri = Kii 
+        else:
+            rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
+            Lsq_b = bound_space**2*np.ones_like(rb)
+            KIb = logKer(x0=self.rI, x1=rb, y0=self.zI, y1=zb,rsq0=Lsq_I,rsq1=Lsq_b)
+            Kbb = logKer(x0=rb, x1=rb, y0=zb, y1=zb,rsq0=Lsq_b,rsq1=Lsq_b)
+            Kbb+= bound_sig**2*np.eye(rb.size)
+
+            
+            mu_f_pri = mean_value*np.ones_like(self.rI)
+
+            Kb = Kii - KIb @ np.linalg.inv(Kbb) @ KIb.T
+            Kf_pri = Kb
+            mu_f_pri  = mu_f_pri + KIb @ (np.linalg.inv(Kbb) @ (bound_value*np.ones(rb.size)-mean_value))
+
+        if is_static_kernel:
+            self.Kf_pri = Kf_pri
+            self.muf_pri = mu_f_pri 
+            self.kernel_type = 'uniform laplace kernel'
                     
             self.Kf_pri_property = {
                 #'kernel_type': self.kernel_type,
@@ -958,11 +1037,11 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             K = self.Kf_pri
             mu_f = self.muf_pri
 
-        K_hash = hash((K.sum(axis=1)).tobytes())
+        K_hash = hash((K.sum(axis=1)).tobytes())  #type: ignore
 
         if self.V is None or (self.K_hash != K_hash):
             print('Eigenvalue decomposition is recalculated')
-            lam,V = np.linalg.eigh(K)
+            lam,V = np.linalg.eigh(K) #type: ignore
             lam[lam<1e-5]= 1e-5
             self.V = V
             self.lam = lam
@@ -980,36 +1059,345 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         f:npt.NDArray[np.float64],
         size :float = 1.0, # type: ignore
         back_ground:float | None =None,
+        cbar :bool=True,
         cbar_title: str|None = None,
         is_frame:bool=True,
+        vmean: float|None=None,
         **kwargs_scatter,
         )->None:
+
+        if 'vmax' in kwargs_scatter:
+            vmax = kwargs_scatter['vmax']
+        else:
+            vmax = np.percentile(f,99)
+        if 'vmin' in kwargs_scatter:
+            vmin = kwargs_scatter['vmin']
+        else:
+            vmin = np.percentile(f,1)
+
+    
+        if vmean is not None:
+            temp = ((vmax - vmean)  > (vmean-vmin))
+            tempi = not ((vmax - vmean)  > (vmean-vmin))
+
+            vmax = temp  *vmax + tempi *(2*vmean-vmin)
+            vmin = tempi *vmin + temp  *(2*vmean-vmax)
+        
+        kwargs_scatter['vmax'] = vmax
+        kwargs_scatter['vmin'] = vmin
 
         if back_ground is not None:
             cmap:str = 'viridis'
             alpha =1.0
-            vmax = f.max()
-            vmin = f.min()
-            if 'vmax' in kwargs_scatter:
-                vmax = kwargs_scatter['vmax']
-            if 'vmin' in kwargs_scatter:
-                vmin = kwargs_scatter['vmin']
             if 'cmap' in kwargs_scatter:
                 cmap = str(kwargs_scatter['cmap'])
             if 'alpha' in kwargs_scatter:
                 alpha = kwargs_scatter['alpha']
             
-            ax.imshow(back_ground*self.mask,cmap=cmap,vmax=vmax,vmin=vmin,**self.im_kwargs)
+            ax.imshow(back_ground*self.mask,cmap=cmap,vmax=vmax,vmin=vmin,alpha=alpha,**self.im_kwargs) # type: ignore
         
         size:npt.NDArray[np.float64] = size**2*1e5 *self.Lsq_I
         im = ax.scatter(x=self.rI,y=self.zI,c=f,s=size,**kwargs_scatter)
-        divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)
-        cax = divider.append_axes('right' , size="5%", pad='3%')
-        cbar = plt.colorbar(im, cax=cax, orientation='vertical')
-        if cbar_title is not None: cbar.set_label(cbar_title)
-        ax.set_aspect('equal')
+
+        if cbar:
+            divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)
+            cax = divider.append_axes('right' , size="5%", pad='3%')
+            cbar = plt.colorbar(im, cax=cax, orientation='vertical')
+            if cbar_title is not None: cbar.set_label(cbar_title) # type: ignore
+        
+        #ax.set_aspect('equal')
         if is_frame: self.append_frame(ax=ax,add_coil=True)
     
+
+class Kernel2D_grid(rt1plotpy.frame.Frame):
+    def __init__(self,
+        dxf_file  :str,
+        show_print:bool=False
+        ) -> None:
+        
+        """
+        import dxf file
+
+        Parameters
+        ----------
+        dxf_file : str
+            Path of the desired file.
+        show_print : bool=True,
+            print property of frames
+        Note
+        ----
+        dxf_file is required to have units of (mm).
+        """
+        super().__init__(dxf_file,show_print)
+        #self.im_shape: Union[Tuple[int,int],None] = None
+        self.V = None
+
+        print('you have to "create_induced_point()" or "set_induced_point()" next.')
+
+    def set_grid(self,
+        r_grid: npt.NDArray[np.float64],
+        z_grid: npt.NDArray[np.float64],
+        boundary = 0, 
+        ) -> Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]] | None:     
+        self.r_grid,self.z_grid = r_grid,z_grid
+        self.nr,self.nz = r_grid.size, z_grid.size
+
+        self.grid_shape=(self.nz,self.nr)
+
+        self.Z_grid,self.R_grid = np.meshgrid(z_grid,r_grid,indexing='ij')
+
+        self.Z_grid_fl = self.Z_grid.flatten() 
+        self.R_grid_fl = self.R_grid.flatten()
+
+        self.mask,self.im_kwargs = self.grid_input(r_grid,z_grid)
+
+        self.set_bound()
+        pass 
+
+    def set_bound(self,
+        does_contain_edge : bool = True,
+        ):
+        self.Is_out = self.Is_out + (self.fill==1)
+        if does_contain_edge:
+            self.Is_out[0,:] = True
+            self.Is_out[-1,:] = True
+            self.Is_out[:,0] = True
+            self.Is_out[:,-1] = True
+        pass 
+
+    def create_observation_matrix(self,
+        ray  : rt1raytrace.Ray,
+        Lnum : int=100
+        ) ->  sparse.csr_matrix:
+
+        Rray,Zray = ray.RZ_ray(Lnum)
+        dL = ray.Length/ (Lnum+1)
+        H = create_grid_obs(Rray,Zray,dL,self.r_grid,self.z_grid)
+        H = H.reshape(ray.shape[0]*ray.shape[1],self.nr*self.nz)
+        return sparse.csr_matrix(H)
+    
+    def grid_input(self, 
+        R: npt.NDArray[np.float64], 
+        Z: npt.NDArray[np.float64], 
+        fill_point: Tuple[float, float] = (0.5,0), 
+        fill_point_2nd: Optional[Tuple[float, float]] = None, 
+        isnt_print: bool = False
+        ) -> Tuple[npt.NDArray[np.float64], dict]:
+        mask,extent = self.__grid_input(R, Z, fill_point, fill_point_2nd, isnt_print)
+        """
+        this functions is to return 'mask' and 'imshow_kwargs' np.array for imshow plottting
+
+        Parameters
+        ----------
+        R: npt.NDArray[np.float64],
+            array of R axis with 1dim
+        Z: npt.NDArray[np.float64],
+            array of Z axis with 1dim
+
+        fill_point: Tuple[float,float] = (0.5,0), optional,
+        fill_point_2nd: Optional[Tuple[float,float]] = None, optional
+
+        Reuturns
+        ----------
+        mask:
+        imshow_kwargs:  {"origin":"lower","extent":extent}
+        """
+        return mask, {"origin":"lower","extent":extent}
+
+    
+    
+    def __grid_input(self, R: npt.NDArray[np.float64], Z: npt.NDArray[np.float64], fill_point: Tuple[float, float] = ..., fill_point_2nd: Optional[Tuple[float, float]] = None, isnt_print: bool = False
+        ) -> Tuple[npt.NDArray[np.float64], tuple]:
+        return super().grid_input(R, Z, fill_point, fill_point_2nd, isnt_print)
+
+        
+
+    def set_kernel(self,
+        is_bound :bool=True ,
+        Length_sq :npt.NDArray[np.float64]|float = 1.,
+        bound_value : float=0,
+        bound_sig : float = 0.1,
+        is_static_kernel:bool = True,
+        mean :float = 0.,
+
+        )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
+
+        """
+
+        Parameters
+        ----------
+        length_scale     :,
+        is_bound         : Trueのとき境界条件が定められる。,
+        bound_value      :,
+        bound_sig        :,
+        bound_space      :,
+        is_static_kernel : TrueのときオブジェクトにKf_priとmuf_priが保存される。,
+
+        Reuturns
+        ----------
+        K_ff_pri: hoge,
+        mu_f_pri: hoge,
+
+        """
+        R,Z = self.R_grid_fl,self.Z_grid_fl
+        if type(Length_sq) is float:
+            Length = Length_sq*np.ones(R.size,dtype=np.float64)
+            pass 
+        else:
+            Length = np.sqrt(Length_sq)
+
+        Kgg = GibbsKer(x0=R, x1=R, y0=Z, y1=Z, lx0=Length, lx1=Length, isotropy=True)
+        if not is_bound: 
+            mu_f_pri = bound_value*np.ones_like(self.R_grid)
+            Kf_pri = Kgg
+        else:
+            rb = self.R_grid[self.Is_out]
+            zb = self.Z_grid[self.Is_out]
+            lb = Length[self.Is_out]
+            Kgb = GibbsKer(x0=R , x1=rb, y0=Z, y1=zb, lx0=Length, lx1=lb, isotropy=True)
+            Kbb = GibbsKer(x0=rb, x1=rb, y0=zb,y1=zb, lx0=lb , lx1=lb, isotropy=True)
+            Kbb+= bound_sig**2*np.eye(rb.size)
+            Kbb_inv = np.linalg.inv(Kbb)
+            Kb = Kgg - Kgb @ Kbb_inv @ Kgb.T
+            Kf_pri  = Kb
+            mu_f_pri  = mean + Kgb @ (Kbb_inv @ (bound_value*np.ones(rb.size)-mean))
+            
+
+        if is_static_kernel:
+            self.Kf_pri = Kf_pri
+            self.muf_pri = mu_f_pri 
+            self.kernel_type = 'isotropic kernel'
+                    
+            self.Kf_pri_property = {
+                #'kernel_type': self.kernel_type,
+                'is_bound'   : is_bound ,
+                #'mean_value' : mean_value,
+                'bound_value': bound_value,
+                'bound_sig'  : bound_sig } 
+
+        return Kf_pri,mu_f_pri
+    
+    def create_laplacian_matrix(self
+        )->sparse.csr_matrix:
+
+        C = np.zeros((self.nz,self.nr,self.nz,self.nr))
+        r_grid,z_grid = self.r_grid,self.z_grid
+        dr = r_grid[1]-r_grid[0]
+        dz = z_grid[1]-z_grid[0]
+
+        ov_drsq  = 1/dr**2
+        ov_dzsq  = 1/dz**2
+        for i in range(120):
+            for j in range(100):
+
+                if i != 0:
+                    C[i,j,i-1,j  ] = ov_dzsq 
+                if i != 119:
+                    C[i,j,i+1,j  ] = ov_dzsq 
+                if j != 0:
+                    C[i,j,i  ,j-1] = ov_drsq 
+                if j != 99:
+                    C[i,j,i  ,j+1] = ov_drsq 
+                    
+
+        C[:,:,self.Is_out] = 0
+        C[self.Is_out,:,:] = 0
+
+        for i in range(120):
+            for j in range(100):
+                C[i,j,i,j] = -2*ov_drsq  -2*ov_dzsq
+
+        return sparse.csr_matrix(C.reshape(self.nz*self.nr, self.nz*self.nr))
+    
+    def create_deribative_matrix(self
+        )->tuple[sparse.csr_matrix,sparse.csr_matrix]:
+        
+        Cr = np.zeros((self.nz,self.nr,self.nz,self.nr))
+        Cz = np.zeros((self.nz,self.nr,self.nz,self.nr))
+        r_grid,z_grid = self.r_grid,self.z_grid
+        dr = r_grid[1]-r_grid[0]
+        dz = z_grid[1]-z_grid[0]
+
+        ov_dr  = 1/dr
+        ov_dz  = 1/dz
+        for i in range(120):
+            for j in range(100):
+                if j != 0:
+                    pass
+                Cr[i,j,i  ,j  ] = -ov_dr
+                if j != 99:
+                    Cr[i,j,i  ,j+1] = +ov_dr 
+                if i != 0:
+                    pass
+                
+                Cz[i,j,i,j    ] = -ov_dz 
+                if i != 119:
+                    Cz[i,j,i+1,j  ] = +ov_dz 
+                
+        Cr = sparse.csr_matrix(Cr.reshape(120*100,120*100))
+        Cz = sparse.csr_matrix(Cz.reshape(120*100,120*100))
+        return Cr,Cz
+
+    
+    def sampler(self,
+        K   : Optional[npt.NDArray[np.float64]]=None,
+        mu_f: npt.NDArray[np.float64] | float = 0.
+        ) -> npt.NDArray[np.float64]:
+
+        if K is None:
+            K = self.Kf_pri
+            mu_f = self.muf_pri
+
+        K_hash = hash((K.sum(axis=1)).tobytes())  #type: ignore
+
+        if self.V is None or (self.K_hash != K_hash):
+            print('Eigenvalue decomposition is recalculated')
+            lam,V = np.linalg.eigh(K) #type: ignore
+            lam[lam<1e-5]= 1e-5
+            self.V = V
+            self.lam = lam
+        else:
+            self.V = self.V
+            self.lam = self.lam
+        
+        self.K_hash = K_hash 
+        
+        noise = np.random.randn(self.nI)
+        return  mu_f+ self.V @ (np.sqrt(self.lam) *  noise)  
+
+
+@njit 
+def create_grid_obs(
+    Rray,Zray,dL,r_grid,z_grid):
+    Lnum = Rray.shape[0]
+    R,Z = r_grid,z_grid
+    R_ext = np.empty(R.size+1,dtype=np.float64)  
+    Z_ext = np.empty(Z.size+1,dtype=np.float64)
+    R_ext[0] =  R[0]  - 0.5* (R[1]-R[0])
+    R_ext[-1] = R[-1] + 0.5* (R[-1]-R[-2])
+    R_ext[1:-1] = 0.5 * (R[:-1] + R[1:])
+    Z_ext[0] =  Z[0]  - 0.5* (Z[1]-Z[0])
+    Z_ext[-1] = Z[-1] + 0.5* (Z[-1]-Z[-2])
+    Z_ext[1:-1] = 0.5 * (Z[:-1] + Z[1:])
+
+    H = np.zeros((Rray.shape[1],Rray.shape[2],z_grid.size,r_grid.size))    
+    
+    for i in range(Rray.shape[1]):
+        for j in range(Rray.shape[2]):
+            ray_map =  np.zeros((z_grid.size,r_grid.size),dtype=np.int16)
+            for k in range(Lnum):
+                r,z = Rray[k,i,j], Zray[k,i,j]
+                is_rin = (r>R_ext[0:-1]) * (r <=R_ext[1:])
+                is_zin = (z>Z_ext[0:-1]) * (z <=Z_ext[1:])
+                ir = np.arange(r_grid.size)[is_rin][0]
+                iz = np.arange(z_grid.size)[is_zin][0]
+                ray_map[iz,ir] += 1  
+            H[i,j,:,:] = dL[i,j]*ray_map[:,:] 
+        if i%10 == 0:
+            print(i)
+    
+    return H 
+
 
 
 @njit
@@ -1075,7 +1463,4 @@ def GibbsKer_fast(
     return 2*Lx[0]*Lx[1]/Lxsq *np.exp( -   ((X[0]-X[1])**2  +(Y[0]-Y[1])**2 )/ Lxsq )
 
 class Kernel1D():
-    pass 
-
-class Kernel2D_grid():
     pass 
