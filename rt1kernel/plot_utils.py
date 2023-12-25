@@ -34,6 +34,8 @@ params = {
         
 plt.rcParams.update(**params)
 
+cycle = plt.get_cmap("tab10") 
+
 
 def imshow_cbar(
     ax:plt.Axes,

@@ -16,7 +16,7 @@ import scipy.sparse as sparse
 import pandas as pd
 import os
 
-from rt1raytrace.plot_utils import *
+from .plot_utils import *
 
 __all__ = ['Raytrace','Circle','Ray','Raytrace_load_model']
 
@@ -191,7 +191,7 @@ class Raytrace(frame.Frame):
                     +'location: '+str(self.location)+'\n'
                     +'rotation: '+str(self.rotation),fontsize=25)
         fig.tight_layout()
-        fig.savefig(path+class_name+'_'+name+'.png',tight_layout=True,facecolor="white") 
+        fig.savefig(path+class_name+'_'+name+'.png',facecolor="white") 
         pd.to_pickle(self,path+class_name+'_'+name+'.pkl')
 
     def __init__(self,

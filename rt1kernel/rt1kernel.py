@@ -4,7 +4,7 @@ import numpy as np
 import numpy.typing as npt
 from numpy import FPE_DIVIDEBYZERO, array, linalg, ndarray
 import rt1plotpy
-from typing import Optional, Union,Tuple,Callable, TypeVar,cast,List
+from typing import Any, Optional, Union,Tuple,Callable, TypeVar,cast,List
 import time 
 import math
 from tqdm import tqdm
@@ -18,13 +18,24 @@ import pandas as pd
 import os,sys
 from .plot_utils import *  
 
-sys.path.insert(0,os.pardir)
-import rt1raytrace
+try:
+    from .. import rt1raytrace
+except:
+    sys.path.insert(0,os.path.join(os.path.dirname(__file__),os.pardir))
+    import rt1raytrace
+    sys.path.pop(0)
+#sys.path.insert(0,os.pardir)
+
+
+
+#sys.path.insert(0,os.path.join(os.path.dirname(__file__),os.pardir))
+#import rt1raytrace
 
 __all__ = ['Kernel2D_scatter',
            'Kernel1D',
            'Kernel2D_grid',
            'Observation_Matrix_integral',
+           'Observation_Matrix',
            'Observation_Matrix_integral_load_model']
 
 float_numpy = TypeVar(" float | NDArray[float64] ",float,npt.NDArray[np.float64])#type: ignore # 怒られているけど、実行する気エラーにならないので無視する。
@@ -42,19 +53,31 @@ def zeros_like(type_x:float_numpy)->float_numpy:
 
 @dataclass
 class Observation_Matrix:
-    H  : Union[sparse.csr_matrix,npt.NDArray[np.float64]]
+    H  : sparse.csr_matrix|npt.NDArray[np.float64]
     ray: rt1raytrace.Ray
     
     def __post_init__(self):
         shape = self.H.shape
         self.H = sparse.csr_matrix(self.H.reshape(shape[0]*shape[1],shape[2]))
         self.shape :tuple = shape
+
+    def __call__(self
+        ) -> Any:
+        return self.H
     
     def set_Direction(self,
-            rI: npt.NDArray[np.float64]
+            rI: npt.NDArray[np.float64],
+            mask: npt.NDArray[np.bool_]|None=None,
         ):
         Dcos = self.ray.Direction_Cos(R=rI)
-        self.Exist = sparse.csr_matrix(self.H > 0)  
+        if mask is not None:
+            H = (self.H).toarray()  # type: ignore
+            H = H[~mask.flatten(),:] 
+            Dcos = Dcos[~mask.flatten(),:]
+        else:
+            H = self.H
+            pass 
+        self.Exist = sparse.csr_matrix(H > 0)  
         self.Dcos  :sparse.csr_matrix = self.Exist.multiply(Dcos)
         pass 
 
@@ -84,6 +107,7 @@ class Observation_Matrix:
         self.H = cast(sparse.csr_matrix,self.H)
         E :sparse.csr_matrix = (self.Exist@sparse.diags(a)+1.j*self.Dcos@sparse.diags(v))
         E = E.expm1() + self.Exist
+
         A = np.array(self.H.multiply(E).sum(axis=1))
 
         if reshape:
@@ -119,12 +143,19 @@ class Observation_Matrix:
         mask : npt.NDArray[np.bool_]
         )->sparse.csr_matrix:
         
-        if np.all(mask == True):
+        if np.all(mask == False):
             return sparse.csr_matrix(self.H)
         
         H_d = self.toarray()
-        H_d_masked = H_d[mask.flatten(),:]
+        H_d_masked = H_d[~mask.flatten(),:]
         return sparse.csr_matrix(H_d_masked)
+    
+    def __matmul__(self,
+        f: npt.NDArray[np.float64]
+        )-> npt.NDArray[np.float64]:
+        
+        return (self.H @ f).reshape(*self.ray.shape)
+            
 
 
 def cal_refractive_indices_metal2(
@@ -159,9 +190,10 @@ class Observation_Matrix_integral:
         
         return pd.read_pickle(path)
 
-    def save_model(self,path:str):
+    def save_model(self,name:str,path:str=''):
         self.path = path+'.pkl'
         self.abspath = os.path.abspath(self.path) 
+        class_name = type(self).__name__
         
         try:
             self.Hs_mask
@@ -176,7 +208,7 @@ class Observation_Matrix_integral:
             pass 
 
         
-        pd.to_pickle(self,path+'.pkl')
+        pd.to_pickle(self,path+class_name+'_'+name+'.pkl')
         
 
     def __init__(self,
@@ -186,8 +218,8 @@ class Observation_Matrix_integral:
         zI    : npt.NDArray[np.float64]) -> None:
         self.shape :tuple = H_list[0].shape 
         self.n  = len(H_list)
-        self.mask = np.ones(self.shape[0:2],dtype=np.bool_)
-        self.refs :list[npt.NDArray[np.float64]] = self.n*[np.empty(0)]
+        self.mask = np.zeros(self.shape[0:2],dtype=np.bool_)
+        self.refs :list[npt.NDArray[np.float64]] = (self.n-1)*[np.empty(0)]
         self.ray_init = ray0
         self.Hs = H_list
         self.rI = rI 
@@ -198,7 +230,7 @@ class Observation_Matrix_integral:
     def set_directon(self
         ):
         for H in self.Hs:
-            H.set_Direction(rI=self.rI)
+            H.set_Direction(rI=self.rI,mask=self.mask)
         pass 
 
     def set_mask(self,
@@ -214,16 +246,16 @@ class Observation_Matrix_integral:
 
     def set_uniform_ref(self,wave:str):
         n_R, n_I = self.indices[wave]
-        for i in range(1,self.n):
-            cos_factor = np.nan_to_num(self.Hs[i].ray.cos_factor)
+        for i in range(self.n-1):
+            cos_factor = np.nan_to_num(self.Hs[i+1].ray.cos_factor)
             self.refs[i] = cal_refractive_indices_metal2(cos_factor,n_R,n_I)
 
     def set_fn_ref(self,fn: Callable):
-        for i in range(1,self.n):
-            Phi_ref = self.Hs[i].ray.Phi0
-            Z_ref = self.Hs[i].ray.Z0
+        for i in range(self.n-1):
+            Phi_ref = self.Hs[i+1].ray.Phi0
+            Z_ref = self.Hs[i+1].ray.Z0
             n_R,n_I = fn(Z_ref,Phi_ref)
-            cos_factor = np.nan_to_num(self.Hs[i].ray.cos_factor)
+            cos_factor = np.nan_to_num(self.Hs[i+1].ray.cos_factor)
             self.refs[i] = cal_refractive_indices_metal2(cos_factor,n_R,n_I)
         pass
     
@@ -231,19 +263,21 @@ class Observation_Matrix_integral:
         mask: Optional[npt.NDArray[np.bool_]] = None 
         ) -> None :
 
-        self.H_sum = sparse.csr_matrix(np.empty(0)) 
+        self.H_sum = 0
 
         if not mask is None:
             self.set_mask(mask)
         
         for i,H in enumerate(self.Hs_mask):
             ref = np.ones(H.shape[0])
-            for j in range(i+1):
+            for j in range(i):
                 ref_j = self.refs[j] * np.ones(self.shape[0:2])
-                ref   = ref_j[self.mask] *ref
+                ref   = ref_j[~self.mask] *ref
                 
             ref = sparse.diags(ref)
             self.H_sum += ref @ H
+        
+        self.H_sum  = sparse.csr_matrix(self.H_sum)
 
     def projection(self,
         f :npt.NDArray[np.float64],
@@ -252,7 +286,7 @@ class Observation_Matrix_integral:
 
         if reshape:
             g = np.zeros(self.mask.shape)
-            g[self.mask] = self.H_sum @ f
+            g[~self.mask] = self.H_sum @ f
             return g
         else:        
             g = self.H_sum @ f
@@ -749,6 +783,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         bound_sig : float = 0.1,
         bound_space : float = 1e-2,
         is_static_kernel:bool = True,  
+        zero_value_index = None,
         mean: float= 0,
 
         )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
@@ -777,7 +812,15 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             mu_f_pri = np.zeros_like(self.rI)
             Kf_pri = Kii 
         else:
+            if zero_value_index is None:
+                index = np.zeros(self.nI,dtype=bool)
+            else:
+                index = zero_value_index
+                    
             rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
+            zb,rb = np.concatenate([self.zI[index],zb]), np.concatenate([self.rI[index],rb])
+
+            #rb,zb = self.set_bound_space(delta_l=bound_space,is_change_local_variable=False)
             lb = ls*self.length_scale(rb,zb)
             KIb = GibbsKer(x0=self.rI, x1=rb, y0=self.zI, y1=zb, lx0=lI*ls, lx1=lb*ls, isotropy=True)
             Kbb = GibbsKer(x0=rb     , x1=rb, y0=zb     , y1=zb, lx0=lb*ls, lx1=lb*ls, isotropy=True)
@@ -954,7 +997,8 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         is_bound         : bool  = True ,
         bound_value      : float = -2,
         bound_sig        : float = 0.05,
-        bound_space      : float = 1e-1,
+        bound_space      : float = 1e-2,
+        mean             : float = 0,
         zero_value_index : npt.NDArray[np.bool_] |None = None, # requres b
         separatrix       : bool = False,
         is_static_kernel : bool = False,
@@ -980,7 +1024,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         Kflux_ii = np.exp(-0.5*(psi_psi+b_b))
 
         if not is_bound:
-            mu_f_pri = np.zeros_like(self.rI)
+            mu_f_pri = mean*np.ones_like(self.rI)
             Kflux_pri = Kflux_ii
         
         else:
@@ -1010,7 +1054,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             out_value = bound_value
             Kb_oo_sig_inv = np.linalg.inv(Kb_oo+out_sig**2*np.eye(ro.size))
             Kflux_pri = Kflux_ii - Kb_io @ Kb_oo_sig_inv @ Kb_io.T 
-            mu_f_pri  = 0*np.ones(self.nI)+Kb_io @  (Kb_oo_sig_inv @ (out_value*np.ones(ro.size))  ) 
+            mu_f_pri  = mean+Kb_io @  (Kb_oo_sig_inv @ (out_value*np.ones(ro.size)-mean)  ) 
 
         if is_static_kernel:
             self.Kf_pri = Kflux_pri 
@@ -1107,6 +1151,31 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         
         #ax.set_aspect('equal')
         if is_frame: self.append_frame(ax=ax,add_coil=True)
+
+    def  plt_rt1_flux(self,
+        ax:plt.Axes,      
+        separatrix:bool =True,
+        is_inner:bool =False,
+        append_frame :bool =True,
+        **kwargs_contour,
+        )->None:
+        R,Z = np.meshgrid(self.r_plot,self.z_plot,indexing='xy')
+        Psi = rt1plotpy.mag.psi(R,Z,separatrix=separatrix)
+        extent = self.im_kwargs['extent']
+        origin = self.im_kwargs['origin']
+        kwargs = {'levels':20,'colors':'black','alpha':0.3}
+        kwargs.update(kwargs_contour)
+        if is_inner:
+            Psi = Psi*self.mask
+        else:
+            mpsi_max = -rt1plotpy.mag.psi(0.3,0.,separatrix=separatrix)
+            mpsi_min = -rt1plotpy.mag.psi(self.r_plot.min(),self.z_plot.max(),separatrix=separatrix)
+            kwargs['levels'] = np.linspace(mpsi_min,mpsi_max,kwargs['levels'],endpoint=False)
+        
+        ax.contour(-Psi,extent=extent,origin=origin,**kwargs)
+        if append_frame:
+            self.append_frame(ax)
+
     
 
 class Kernel2D_grid(rt1plotpy.frame.Frame):
@@ -1362,7 +1431,7 @@ class Kernel2D_grid(rt1plotpy.frame.Frame):
         
         self.K_hash = K_hash 
         
-        noise = np.random.randn(self.nI)
+        noise = np.random.randn(self.R_grid.size)
         return  mu_f+ self.V @ (np.sqrt(self.lam) *  noise)  
 
 

@@ -18,11 +18,18 @@ import pandas as pd
 import os,sys
 from .plot_utils import *  
 
-import rt1kernel
+from . import rt1kernel
+from . import reflection
 
-sys.path.insert(0,os.pardir)
-import rt1raytrace
+sys.path.insert(0,os.path.join(os.path.dirname(__file__),os.pardir))
+try:
+    from .. import rt1raytrace
+except:
+    import rt1raytrace
+
 import sparse_dot_mkl
+sys.path.pop(0)
+
 
 
 
@@ -357,6 +364,7 @@ class GPT_av:
         self.H   = Obs.Hs[0].H
         self.Dec = Obs.Hs[0].Dcos
         self.Exist = Obs.Hs[0].Exist
+        self.mask = Obs.mask
         pass
 
     def set_kernel(self,
@@ -386,20 +394,23 @@ class GPT_av:
 
         
     def set_sig(self,
-        sigma:np.ndarray,
+        sig_im:np.ndarray,
         A_cos:np.ndarray,
         A_sin:np.ndarray,
         num:int=0,
         #sig_scale:float = 1.0,
         ):
-        sigma = sigma.flatten()
-        A_cos = A_cos.flatten()
-        A_sin = A_sin.flatten()
+        self.Acos_im = A_cos.reshape(*self.Obs.shape[:2])
+        self.Asin_im = A_sin.reshape(*self.Obs.shape[:2])
+        print(sig_im.shape)
+        sigma = sig_im[~self.mask]
+        A_cos = A_cos[~self.mask]
+        A_sin = A_sin[~self.mask]
         self.sig_inv = 1/sigma
         self.sig2_inv = 1/sigma**2
         #Dcos  = 1.j*self.Obs.Hs[num].Dcos
-        H    = self.Obs.Hs[num].H
-
+        #H    = self.Obs.Hs[num].H
+        H    = self.Obs.Hs_mask[0]
         self.sigiH   : sps.csr_matrix = sps.diags(self.sig_inv) @ H  
         self.sigiA = np.hstack((self.sig_inv*A_cos, self.sig_inv*A_sin))
     
@@ -488,18 +499,30 @@ class GPT_av:
         v:np.ndarray):
         m = self.H.shape[0]
         fig,axs = plt_subplots(2,2,figsize=(8,8),sharex=True,sharey=True)
-        A = self.Obs.Hs[0].projection_A2(a,v)
-        g_cos,g_sin = A.real,A.imag
-        y = self.sigiA
-        y_cos = (1/self.sig_inv*y[:m]).reshape(*self.Obs.shape[:2])
-        y_sin = (1/self.sig_inv*y[m:]).reshape(*self.Obs.shape[:2])
-        imshow_cbar(axs[0][0],g_cos)
-        imshow_cbar(axs[1][0],g_sin)
-        diff1 = g_cos-y_cos
-        diff2 = g_sin-y_sin
+
+        DecV = sps.csr_matrix(self.Dec @ sps.diags(v))
+        Hc = self.Obs.Hs_mask[0].multiply(csr_cos(DecV,self.Exist))
+        Hs = self.Obs.Hs_mask[0].multiply(DecV.sin())
+
+        g_cos = np.zeros(self.Obs.shape[:2])
+        g_cos[~self.mask] = Hc@np.exp(a)
+        g_sin = np.zeros(self.Obs.shape[:2])
+        g_sin[~self.mask] = Hs@np.exp(a)
+
+        #g_cos,g_sin = A.real,A.imag
+        
+        y_cos = self.Acos_im
+        y_sin = self.Asin_im
+        #y = self.sigiA
+        #y_cos = (1/self.sig_inv*y[:m]).reshape(*self.Obs.shape[:2])
+        #y_sin = (1/self.sig_inv*y[m:]).reshape(*self.Obs.shape[:2])
+        imshow_cbar(axs[0][0],g_cos,origin='lower')
+        imshow_cbar(axs[1][0],g_sin,origin='lower')
+        diff1 = (g_cos-y_cos)[~self.mask]
+        diff2 = (g_sin-y_sin)[~self.mask]
         vmax = max(np.percentile(diff1,95),-np.percentile(diff1,5),np.percentile(diff2,95),-np.percentile(diff2,5)) #type: ignore
-        imshow_cbar(axs[0][1],g_cos-y_cos,cmap='RdBu_r',vmax=vmax,vmin=-vmax)
-        imshow_cbar(axs[1][1],g_sin-y_sin,cmap='RdBu_r',vmax=vmax,vmin=-vmax)
+        imshow_cbar(axs[0][1],g_cos-y_cos,cmap='RdBu_r',vmax=vmax,vmin=-vmax,origin='lower')
+        imshow_cbar(axs[1][1],g_sin-y_sin,cmap='RdBu_r',vmax=vmax,vmin=-vmax,origin='lower')
         
         axs[0][0].set_title(r'$g^{\cos}$')
         axs[1][0].set_title(r'$g^{\sin}$')
@@ -509,17 +532,19 @@ class GPT_av:
 
 GPT_cis = GPT_av
 
-
 class GPT_log:
     def __init__(self,
         Obs: rt1kernel.Observation_Matrix_integral,
         Kernel: rt1kernel.Kernel2D_scatter,
+        H_diff: reflection.Diffusion_kernel = None
         ) -> None:
         self.Obs = Obs
         self.rI = Obs.rI 
         self.zI = Obs.zI 
         self.nI = Obs.zI.size  
         self.Kernel = Kernel
+        self.mask = self.Obs.mask
+        self.H_diff =  H_diff
         pass
 
     def set_kernel(self,
@@ -533,20 +558,23 @@ class GPT_log:
         self.f_pri = f_pri
 
     def set_sig(self,
-        sig_array:np.ndarray,
-        g_obs:np.ndarray,
+        sig_im  :np.ndarray,
+        g_obs   :np.ndarray,
         sig_scale:float=1.0,
         num:int=0,
         ):
         self.g_obs=g_obs.reshape(self.Obs.shape[:2])
-        self.sig_scale = sig_scale
-        sig_array = sig_array.flatten()
-        g_obs = g_obs.flatten()
-        self.sig_inv = 1/sig_array
-        #self.sig2_inv = 1/sig_array**2
-        H    = self.Obs.Hs[num].H
+        g_obs =  self.g_obs[~self.mask]
+        sig_im = sig_im[~self.mask]
 
-        self.Sigi_obs = self.sig_inv*(g_obs)
+        self.sig_scale = sig_scale
+        self.sig_inv = 1/sig_im
+        #self.sig2_inv = 1/sig_array**2
+
+        #H    = self.Obs.Hs[num].H
+        H    = self.Obs.H_sum
+
+        self.Sigi_obs = self.sig_inv* g_obs
         self.sigiH = sps.csr_matrix(sps.diags(self.sig_inv) @ H )
         sigiH_t = sps.csr_matrix( self.sigiH.T )
 
@@ -554,34 +582,57 @@ class GPT_log:
         # self.Hsig2iH = sparse_dot_mkl.gram_matrix_mkl(sigiH_t,transpose=True,dense=True)　#2時間溶かした戦犯
         self.Hsig2iH = sparse_dot_mkl.dot_product_mkl(sigiH_t,self.sigiH ,dense=True)
 
+        if self.H_diff is not None:
+            self.H_diff.H_diff_I
+            Hd_interp_m = self.H_diff.Interp[~self.mask.flatten(),:]
+            self.sigiHd_intp = sps.diags(self.sig_inv) @ Hd_interp_m 
+            self.Hd_sig2i_Hd = self.H_diff.H_diff_I.T @(self.sigiHd_intp.T@self.sigiHd_intp) @ self.H_diff.H_diff_I
+            self.Hd_sig2i_H = self.H_diff.H_diff_I.T @ (self.sigiHd_intp.T @self.sigiH )
+
+
     
     def check_diff(self,
         f:np.ndarray):
             
-        fig,ax = plt.subplots(1,3,figsize=(10,4))
-        g = self.Obs.Hs[0].projection(np.exp(f))
+        fig,ax = plt_subplots(1,3,figsize=(10,4))
+        ax = ax[0][:]
+        g = self.Obs.projection(np.exp(f))
+
+        if self.H_diff is not None :
+            g += (self.H_diff@np.exp(f)).reshape(*self.Obs.shape[:2]) *  self.alpha_d
         imshow_cbar(ax[0],g,origin='lower')
         ax[0].set_title('Hf')
-        vmax = (abs(g-self.g_obs)).max()
+        vmax = np.percentile((abs(g-self.g_obs)[~self.mask]),95)
         imshow_cbar(ax= ax[1],im0 = g-self.g_obs,vmin=-vmax,vmax=vmax,cmap='RdBu_r',origin='lower')
         ax[1].set_title('diff_im')
         
-        ax[2].hist((g-self.g_obs).flatten(),bins=50)
+        ax[2].hist((g-self.g_obs)[~self.mask],bins=50)
+        ax[2].tick_params( labelleft=False)
+
+
         plt.show()
 
     
     def calc_core_fast(self,
         f:np.ndarray,
         num:int=0,
+        alpha_d:float = 0,
         ):
         r_f = f - self.f_pri
         exp_f = np.exp(f)
         fxf = np.einsum('i,j->ij',exp_f,exp_f)
         
-        SiR = self.sigiH @ exp_f - self.Sigi_obs
-
-        c1 = 1/self.sig_scale**2 *(self.sigiH.T @ SiR) * exp_f #self.sigiH.T @ SiR =  self.Hsig2iH  @ exp_f -  self.sigiH.T@ self.Sigi_obs
-        C1 = 1/self.sig_scale**2 *self.Hsig2iH * fxf 
+        if self.H_diff is None:
+            SiR = self.sigiH @ exp_f - self.Sigi_obs
+            c1 = 1/self.sig_scale**2 *(self.sigiH.T @ SiR) * exp_f #self.sigiH.T @ SiR =  self.Hsig2iH  @ exp_f -  self.sigiH.T@ self.Sigi_obs
+            C1 = 1/self.sig_scale**2 *self.Hsig2iH * fxf 
+        else:
+            d = alpha_d
+            H_diff_I = self.H_diff.H_diff_I
+            SiR = self.sigiH @ exp_f + d* (self.sigiHd_intp @ (H_diff_I @ exp_f))- self.Sigi_obs
+            c1 = 1/self.sig_scale**2 *(self.sigiH.T @ SiR+ d *H_diff_I.T @ (self.sigiHd_intp.T @SiR)) * exp_f
+            C1 = 1/self.sig_scale**2 *(self.Hsig2iH+ d**2 *self.Hd_sig2i_Hd + d *self.Hd_sig2i_H +d *self.Hd_sig2i_H.T )* fxf 
+            self.alpha_d =d 
 
         Psi_df   = -c1 - self.K_inv @ r_f 
 
@@ -604,10 +655,19 @@ class GPT_log:
         exp_f = np.exp(f)
         fxf = np.einsum('i,j->ij',exp_f,exp_f)
         
-        SiR = self.sigiH @ exp_f - self.Sigi_obs
+        
+        if self.H_diff is None:
+            SiR = self.sigiH @ exp_f - self.Sigi_obs
+            c1 = 1/self.sig_scale**2 *(self.sigiH.T @ SiR) * exp_f #self.sigiH.T @ SiR =  self.Hsig2iH  @ exp_f -  self.sigiH.T@ self.Sigi_obs
+            C1 = 1/self.sig_scale**2 *self.Hsig2iH * fxf 
+        else:
+            d = self.alpha_d 
+            H_diff_I = self.H_diff.H_diff_I
+            SiR = self.sigiH @ exp_f + d* (self.sigiHd_intp @ (H_diff_I @ exp_f))- self.Sigi_obs
+            c1 = 1/self.sig_scale**2 *(self.sigiH.T @ SiR+ d *H_diff_I.T @ (self.sigiHd_intp.T @SiR)) * exp_f
+            C1 = 1/self.sig_scale**2 *(self.Hsig2iH+ d**2 *self.Hd_sig2i_Hd + d *self.Hd_sig2i_H +d *self.Hd_sig2i_H.T )* fxf 
 
-        c1 = 1/self.sig_scale**2 *(self.sigiH.T @ SiR) * exp_f #self.sigiH.T @ SiR =  self.Hsig2iH  @ exp_f -  self.sigiH.T@ self.Sigi_obs
-        C1 = 1/self.sig_scale**2 *self.Hsig2iH * fxf 
+
 
         Psi_dfdf = -C1 - np.diag(c1) - self.K_inv
 
