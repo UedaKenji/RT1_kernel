@@ -133,5 +133,6 @@ test_reflection/*
 #test_reflectionのフォルダを無視 
 test_forward/*   
 test_local/*   
+test_grid/*   
 test_av_tomography/*
 .vscode/*
