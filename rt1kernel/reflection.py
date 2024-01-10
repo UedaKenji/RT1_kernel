@@ -20,14 +20,18 @@ from .plot_utils import *
 import torch
 from torch.autograd.functional import hessian
 
+from . import rt1kernel
 
-import rt1kernel
-
-sys.path.insert(0,os.pardir)
-import rt1raytrace
+try:
+    from .. import rt1raytrace
+except:
+    sys.path.insert(0,os.path.join(os.path.dirname(__file__),os.pardir))
+    import rt1raytrace
+    sys.path.pop(0)
 
 __all__ = ['Reflection_Kernel_grid',
            'sigmoid_inv',
+           'sigmoid',
            'Reflection_tomography'
            ]
 
@@ -143,10 +147,10 @@ class Reflection_Kernel_grid:
         from matplotlib.cm import ScalarMappable
         
         if show:              
-            fig,axs=plt.subplots(1,2,figsize=(11,5))
+            fig,axs=plt_subplots(1,2,figsize=(11,5))
             scatter_cbar(axs[0],x=self.CI.flatten(),y=self.HI.flatten(),marker='s',c=sigmoid(f),s=75,vmax=1,vmin=0)
-            axs[0].set_ylabel(r'$z$ [m]')
-            axs[0].set_xlabel(r'$\cos\theta$')
+            axs[0][0].set_ylabel(r'$z$ [m]')
+            axs[0][0].set_xlabel(r'$\cos\theta$')
             cmap_line(axs[1],
                       x=180/np.pi*np.arccos(self.cI),
                       y=self.hI,
@@ -156,13 +160,13 @@ class Reflection_Kernel_grid:
                       alpha=0.5
                       )
             
-            axs[1].plot(180/np.pi*np.arccos(self.cI),sigmoid(self.mur_pri.reshape(self.CI.shape)).mean(axis=1),'black')
-            axs[1].set_xlim(0,90)
-            axs[0].set_xlim(axs[0].get_xlim()[::-1])
-            axs[1].set_xlabel(r'$\theta$ [deg]')
-            axs[1].set_ylim(0,1)
+            axs[0][1].plot(180/np.pi*np.arccos(self.cI),sigmoid(self.mur_pri.reshape(self.CI.shape)).mean(axis=1),'black')
+            axs[0][1].set_xlim(0,90)
+            axs[0][0].set_xlim(axs[0].get_xlim()[::-1])
+            axs[0][1].set_xlabel(r'$\theta$ [deg]')
+            axs[0][1].set_ylim(0,1)
             #axs[0].set_ylim(-0.6,0.6)
-            axs[0].grid(False)
+            axs[0][0].grid(False)
 
         return 
 
@@ -393,12 +397,22 @@ class Reflection_tomography:
         )-> Tuple[List[np.ndarray],List[np.ndarray]]:
         
         ## 本来はsimoidは最後にするのが正しいがそこまで影響は少ないと思われる
-        sgmI_sample = sigmoid(np.random.multivariate_normal(refI_now,Kr_now+1e-3*np.eye(self.Ref.NI),490))
+
+        lam,V = np.linalg.eigh(Kr_now+1e-1*np.eye(self.Ref.NI))
+        exist = lam>1e-5
+        lam =lam[exist]
+        V = V[:,exist]
+        L = np.diag(np.sqrt(lam)) @ V.T
+        sgmI_sample= (L.T @ np.random.randn(lam.size,490)).T +np.broadcast_to(refI_now,(490,refI_now.size))
+        sgmI_sample = sigmoid(sgmI_sample)
+        #sgmI_sample = sigmoid(np.random.multivariate_normal(refI_now,Kr_now+1e-1*np.eye(self.Ref.NI),490))
+        self.sgmI_sample = sgmI_sample
         ref0_sample = self.Ref.T_I2w[0] @sgmI_sample.T
         ref1_sample = self.Ref.T_I2w[1] @sgmI_sample.T
         ##
         ref0_mean_sp    = sparse.diags(~self.ref_mask   *(ref0_sample   ).mean(axis=1))
         ref0_sq_mean_sp = sparse.diags(~self.ref_mask   *(ref0_sample**2).mean(axis=1))
+        del sgmI_sample 
 
 
         if self.n_reflection == 1:     
@@ -411,7 +425,7 @@ class Reflection_tomography:
             
             del Mat0
             sigiH_mean = self.sigiH0 + ref0_mean_sp @self.sigiH1 
-            if alpha_d is None:
+            if alpha_d is not None:
                 Mat0 = alpha_d**2 *self.Hdsigi2Hd
 
                 Mat1 = (alpha_d  *(self.sigiH0.T @self.msigi_Interp_diff) 
@@ -420,9 +434,12 @@ class Reflection_tomography:
                 
                 Hsig2iH_mean += Mat0 +Mat1 +Mat1.T
 
-                print((Mat0 +Mat1 +Mat1.T).shape)
+                #print((Mat0 +Mat1 +Mat1.T).shape)
                 sigiH_mean += alpha_d *( self.msigi_Interp_diff @self.H_diff.H_diff_I )
-            sigiH_mean = np.array(sigiH_mean)
+                sigiH_mean = np.array(sigiH_mean)
+
+            #sigiH_mean = np.array(sigiH_mean)
+
             
 
         elif self.n_reflection == 2:
@@ -456,7 +473,7 @@ class Reflection_tomography:
                 sigiH_mean   += alpha_d *( self.msigi_Interp_diff @self.H_diff_I )
             
             if type(sigiH_mean) is not np.ndarray:
-                sigiH_mean = sigiH_mean.toarray()
+                sigiH_mean = np.array(sigiH_mean)
 
         else: return print('n_reflenction is wrong number')
         
@@ -470,7 +487,6 @@ class Reflection_tomography:
             exp_f = np.exp(f)
             fxf = np.einsum('i,j->ij',exp_f,exp_f)
 
-            
             c1 = 1/sig_scale**2 *(Hsig2iH_mean  @ exp_f-sigiH_mean.T @ self.sigi_obs_list[i]) * exp_f 
             C1 = 1/sig_scale**2 *Hsig2iH_mean * fxf 
 
@@ -494,23 +510,24 @@ class Reflection_tomography:
 
             f = f_list[i].copy()
                 
-            for j in range(50):
+            for j in range(30):
                 delta_f,DPsi = calc_core_fast(f=f,i=i)
                 if (res := (delta_f.std())) >= 1e-8:
                     pass
-                    #print(i,res)
                 else:
-                    print(i,j,res)
                     break
                 f += delta_f*1
                 if j%5 == 0:
                     #check_diff(f) 
                     pass  
+            
+            print(i,j,res)
             muf_pos = f 
             f_list[i] = muf_pos
             Kf_pos_list.append(np.linalg.inv(-DPsi))
-                
-            f_rmse.append((np.exp(muf_pos)-self.f_true_list[i]).std()/self.f_true_list[i].mean())
+
+            if self.ref_true is not None: 
+                f_rmse.append((np.exp(muf_pos)-self.f_true_list[i]).std()/self.f_true_list[i].mean())
 
             
             if self.f_true_list is not None and is_plot:    
@@ -652,7 +669,6 @@ class Reflection_tomography:
         lam,V = np.linalg.eigh(Kr_pos_inv)
         lam[lam<1e-5]= 1e-5
         Kr_pos = V @ np.diag(1/lam) @ V.T
-        
         if self.ref_true is not None or is_plot:    
             ref_true = self.ref_true
             fig,axs=plt.subplots(1,3,figsize=(15,5),sharey=True)
@@ -670,8 +686,11 @@ class Reflection_tomography:
                 ax.set_xlim(ax.get_xlim()[::-1])
                 ax.set_ylim(-0.6,0.6)
             plt.show()
+        else :
+            r_RMSE = None
 
-        return refI,Kr_pos,r_RMSE,Phi_i
+
+        return refI,Kr_pos,Phi_i,r_RMSE
     
     def calc_diffusion(self,
         f_list      :List[np.ndarray],
@@ -711,12 +730,14 @@ class Reflection_tomography:
     def calc_diffusion2(self,
         f_list      :List[np.ndarray],
         Kf_now_list:List[np.ndarray],
-        refI    :np.ndarray,
+        refI_now    :np.ndarray,
         Kr_now  :np.ndarray,
 
         ): 
         N = len(f_list)
-        sgmI_sample = sigmoid(np.random.multivariate_normal(refI,Kr_now+1e-3*np.eye(self.Ref.NI),490))
+        sgmI_sample=self.sgmI_sample
+
+        #sgmI_sample = sigmoid(np.random.multivariate_normal(refI,Kr_now+1e-1*np.eye(self.Ref.NI),490))
         ref0_sample = self.Ref.T_I2w[0] @sgmI_sample.T
         ref1_sample = self.Ref.T_I2w[1] @sgmI_sample.T
         ##

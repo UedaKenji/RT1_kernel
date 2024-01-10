@@ -1,41 +1,71 @@
-from fileinput import filename
-import math
-import os
-import sys
-from typing import Union,Tuple,List
-from unicodedata import name
-
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt 
+from typing import Literal,cast
+import numpy as np
+import numpy.typing as npt
+import rt1plotpy
 import mpl_toolkits.axes_grid1
 from matplotlib.colors import Normalize
-from matplotlib.cm import ScalarMappable
 import matplotlib.figure 
-import numpy as np
-import pandas as pd
-from numpy.core.fromnumeric import transpose
-from PIL import Image
-from scipy import misc, ndimage, optimize, signal
-from scipy import special
+from typing import Literal,cast
+from matplotlib.cm import ScalarMappable
+import rt1kernel
 
+__all__ = ['gaussian',
+           'Length_scale_sq', 
+           'Length_scale', 
+           'rt1_ax_kwargs',
+           'cycle',
+           'imshow_cbar',
+           'scatter_cbar',
+           'func_ring',
+           'imshow_cbar_bottom',
+           'cmap_line',
+           'plt_subplots',
+           'plt_rt1_flux',]
 
 params = {
         'font.family'      : 'Times New Roman', # font familyの設定
         'mathtext.fontset' : 'stix'           , # math fontの設定
-        "font.size"        : 18               , # 全体のフォントサイズが変更されます。
-        'xtick.labelsize'  : 15                , # 軸だけ変更されます。
-        'ytick.labelsize'  : 15               , # 軸だけ変更されます
+        "font.size"        : 15               , # 全体のフォントサイズが変更されます。
+        'xtick.labelsize'  : 12                , # 軸だけ変更されます。
+        'ytick.labelsize'  : 12               , # 軸だけ変更されます
+        'xtick.minor.visible' :True,
+        'ytick.minor.visible' :True,
         'xtick.direction'  : 'in'             , # x axis in
         'ytick.direction'  : 'in'             , # y axis in 
-        'xtick.minor.visible': True,
-        'ytick.minor.visible': True,
         'axes.linewidth'   : 1.0              , # axis line width
         'axes.grid'        : True             , # make grid
-        }       
-        
+        'figure.facecolor' : 'none',#透明にする.
+        }
+
 plt.rcParams.update(**params)
 
-cycle = plt.get_cmap("tab10") 
+rt1_ax_kwargs = {'xlim'  :(0,1.1),
+                 'ylim'  :(-0.7,0.7), 
+                 'aspect': 'equal'
+                }
 
+cycle = plt.get_cmap("tab10")  # type: ignore
+
+n0 = 2#25.99e16*0.8/2
+a  = 1.348
+b  = 0.5
+rmax = 0.4577
+
+def gaussian(r,z,n0=n0,a=a,b=b,rmax=rmax,separatrix=True):
+    psi = rt1plotpy.mag.psi(r,z,separatrix=separatrix)
+    br, bz = rt1plotpy.mag.bvec(r,z,separatrix=separatrix)
+    b_abs = np.sqrt(br**2+bz**2)
+    psi_rmax = rt1plotpy.mag.psi(rmax,0,separatrix=separatrix)
+    psi0 = rt1plotpy.mag.psi(1,0,separatrix=separatrix)
+    b0 = rt1plotpy.mag.b0(r,z,separatrix=separatrix)
+    return n0 * np.exp(-a*(psi-psi_rmax)**2/psi0**2)*(b_abs/b0)**(-b) 
+
+def Length_scale_sq(r,z):
+    return 0.0001/(gaussian(r,z)+ 0.05)
+
+def Length_scale(r,z):
+    return np.sqrt( Length_scale_sq(r,z))
 
 def imshow_cbar(
     ax:plt.Axes,
@@ -43,14 +73,13 @@ def imshow_cbar(
     cbar_title: str|None=None,
     **kwargs
     ):
-
     im = ax.imshow(im0,**kwargs)
     divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)    
     cax = divider.append_axes("right", size="5%", pad='3%')
     cbar = plt.colorbar(im, cax=cax, orientation='vertical')
     if cbar_title is not None: cbar.set_title(cbar_title)
     ax.set_aspect('equal')
-
+    
 
 
 def contourf_cbar(
@@ -59,13 +88,13 @@ def contourf_cbar(
     cbar_title: str|None=None,
     **kwargs
     ):
-
     im = ax.imshow(im0,**kwargs)
     divider = mpl_toolkits.axes_grid1.make_axes_locatable(ax)    
     cax = divider.append_axes("right", size="5%", pad='3%')
     cbar = plt.colorbar(im, cax=cax, orientation='vertical')
     if cbar_title is not None: cbar.set_title(cbar_title)
     ax.set_aspect('equal')
+
     
 def imshow_cbar_bottom(
     ax:plt.Axes,
@@ -97,7 +126,7 @@ def scatter_cbar(
     
 def cmap_line(
     ax:plt.Axes,
-    x, y, C, 
+    x,y,C,
     cmap='viridis',
     cbar_title=None,
     **kwargs
@@ -114,6 +143,48 @@ def cmap_line(
     cax = divider.append_axes("right", size="5%", pad='3%')
     cbar = plt.colorbar(sm, cax=cax)
     if cbar_title is not None: cbar.set_label(cbar_title)
+
+
+def func_ring(r,z,n0=1.0,a=1.0,b=1.0,r_center=0.58,radius=0.5,separatrix=False):
+    """
+    n0 :max_value,
+    a  :width of layer,
+    b  : shape,
+    r_center :r center,
+    radius :size of ring 
+    """
+    psi = rt1plotpy.mag.psi(r,z,separatrix)
+    br, bz = rt1plotpy.mag.bvec(r,z,separatrix)
+    b_abs = np.sqrt(br**2+bz**2)
+    psi_rmax = rt1plotpy.mag.psi(r_center,0,separatrix)
+    psi0 = rt1plotpy.mag.psi(1,0,separatrix)
+    b0 = rt1plotpy.mag.b0(r,z,separatrix)
+    bb = b_abs/b0/b
+    return n0 * np.exp(- (np.sqrt(((psi-psi_rmax)/psi0)**2+(1-1/bb)**2)-radius)**2*100/a) /(1+np.exp(20000*(psi-psi0*1.05)))
+
+def plt_rt1_flux(K:rt1kernel.Kernel2D_scatter,
+    ax:plt.Axes,      
+    separatrix:bool =True,
+    is_inner:bool =False,
+    append_frame :bool =True,
+    **kwargs_contour,
+    )->None:
+    R,Z = np.meshgrid(K.r_plot,K.z_plot,indexing='xy')
+    Psi = rt1plotpy.mag.psi(R,Z,separatrix=separatrix)
+    extent = K.im_kwargs['extent']
+    origin = K.im_kwargs['origin']
+    kwargs = {'levels':20,'colors':'black','alpha':0.3}
+    kwargs.update(kwargs_contour)
+    if is_inner:
+        Psi = Psi*K.mask
+    else:
+        mpsi_max = -rt1plotpy.mag.psi(0.3,0.,separatrix=separatrix)
+        mpsi_min = -rt1plotpy.mag.psi(K.r_plot.min(),K.z_plot.max(),separatrix=separatrix)
+        kwargs['levels'] = np.linspace(mpsi_min,mpsi_max,kwargs['levels'],endpoint=False)
+    
+    ax.contour(-Psi,extent=extent,origin=origin,**kwargs)
+    if append_frame:
+        K.append_frame(ax)
 
 
 import matplotlib.figure 

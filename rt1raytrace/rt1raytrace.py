@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.typing as npt
 from numpy import FPE_DIVIDEBYZERO, array, linalg, ndarray
 from rt1plotpy import frame
 from typing import Optional, Union,Tuple,Callable,List,TypeVar,cast
@@ -7,7 +8,7 @@ import time
 import math
 from tqdm import tqdm
 import scipy.linalg as linalg
-from numba import njit
+from numba import njit 
 import warnings
 from dataclasses import dataclass
 import itertools
@@ -15,46 +16,35 @@ import scipy.sparse as sparse
 import pandas as pd
 import os
 
-from rt1raytrace.plot_utils import *
+from .plot_utils import *
 
 __all__ = ['Raytrace','Circle','Ray','Raytrace_load_model']
 
-
-float_numpy = TypeVar(" float|np.ndarray ",float,np.ndarray) # type: ignore
-
-def const_like(x:float, type_x:float_numpy)->float_numpy:
-    return cast(float_numpy, x + 0*type_x)
-
-def ones_like(type_x:float_numpy)->float_numpy:
-    return cast(float_numpy, 1.0*type_x)
-
-def zeros_like(type_x:float_numpy)->float_numpy:
-    return cast(float_numpy, 0.0*type_x)
+float_numpy = TypeVar(" float | NDArray[float64] ",float,npt.NDArray[np.float64])#type: ignore # 怒られているけど、実行する気エラーにならないので無視する。
 
 @dataclass
 class Ray:
-    Ve_theta0: np.ndarray
-    Ho_theta0: np.ndarray
-    R0  : float_numpy      # type: ignore
-    Phi0: float_numpy = 0. # type: ignore
-    Z0  : float_numpy = 0. # type: ignore
-    cos_factor: float_numpy = 1.   # type: ignore
+    Ve_theta0: npt.NDArray[np.float64]
+    Ho_theta0: npt.NDArray[np.float64]
+    R0  : float | npt.NDArray[np.float64]
+    Phi0: float | npt.NDArray[np.float64]
+    Z0  : float | npt.NDArray[np.float64]
+    cos_factor: float | npt.NDArray[np.float64] = 1. 
     raytraced: bool = False
 
     def __post_init__(self):
         self.shape = (self.Ve_theta0.shape)
         self.cos_factor = np.abs(self.cos_factor)
-        self.cos_factor = cast(typ=float_numpy, val=self.cos_factor) # type: ignore # type is explicitly float_numpy
 
     def set_raytraced(self,
-        Length   : np.ndarray,
-        ref_type : np.ndarray,
-        ref_num  : np.ndarray
+        Length   : npt.NDArray[np.float64],
+        ref_type : npt.NDArray[np.int8],
+        ref_num  : npt.NDArray[np.int8]
         ):
         self.reytraced = True        
-        self.Length   : np.ndarray = Length      
-        self.ref_type : np.ndarray = ref_type
-        self.ref_num  : np.ndarray = ref_num
+        self.Length   = Length      
+        self.ref_type = ref_type
+        self.ref_num   = ref_num
 
         self.R1, self.Phi1, self.Z1,_ = self.ZΦRL_ray()
         
@@ -63,10 +53,10 @@ class Ray:
         
 
     def ZΦRL_ray(self,
-        Lmax: Union[np.ndarray,float,None] = None,
+        Lmax: float | npt.NDArray[np.float64] | None = None,
         Lnum: int=1,
-        Lmin: float = 0., 
-        ) ->  Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        Lmin: float | npt.NDArray[np.float64] = 0., 
+        ) ->  Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
 
         if Lmax is None:
             Lmax = self.Length
@@ -88,27 +78,27 @@ class Ray:
 
     def RZ_ray(self,
         Lnum: int=1,
-        Lmax: Union[np.ndarray,float,None] = None,
+        Lmax: Union[npt.NDArray[np.float64],float,None] = None,
         Lmin: float = 0., 
-        ) ->  Tuple[np.ndarray, np.ndarray]:
+        ) ->  Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         R,_,Z,_ = self.ZΦRL_ray(Lmax=Lmax,Lnum=Lnum,Lmin=Lmin)
         return R,Z
 
         
     def XYZ_ray(self,
         Lnum: int=1,
-        Lmax: Union[np.ndarray,float,None] = None,
+        Lmax: Union[npt.NDArray[np.float64],float,None] = None,
         Lmin: float = 0., 
-        ) ->  Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        ) ->  Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         R,Phi,Z,_ = self.ZΦRL_ray(Lmax=Lmax,Lnum=Lnum,Lmin=Lmin)
         X = R*np.cos(Phi)
         Y = R*np.sin(Phi)
         return X,Y,Z
 
     def Direction_Cos(self,
-        R: np.ndarray,
+        R: npt.NDArray[np.float64],
         flatten:bool =True,
-        ):
+        ) ->npt.NDArray[np.float64]:
         R1 = (self.R0 * np.sin(self.Ho_theta0)).flatten()
         Tan = np.sqrt(1+np.tan(self.Ve_theta0)**2).flatten() 
         Cos = np.einsum('i,j->ij',R1,1/R)
@@ -201,7 +191,7 @@ class Raytrace(frame.Frame):
                     +'location: '+str(self.location)+'\n'
                     +'rotation: '+str(self.rotation),fontsize=25)
         fig.tight_layout()
-        fig.savefig(path+class_name+'_'+name+'.png',tight_layout=True,facecolor="white") 
+        fig.savefig(path+class_name+'_'+name+'.png',facecolor="white") 
         pd.to_pickle(self,path+class_name+'_'+name+'.pkl')
 
     def __init__(self,
@@ -402,7 +392,8 @@ class Raytrace(frame.Frame):
         return self.normal_vector2(R=ray.R1, Z=ray.Z1, frame_type=ray.ref_type, frame_num=ray.ref_num)
 
     def reflection(self,
-        ray:Ray):
+        ray:Ray
+        )->tuple[npt.NDArray[np.float64],npt.NDArray[np.float64],npt.NDArray[np.float64]]:
 
         if ray.Length is None:
             print("Error! raytrace have not been carried out!")
@@ -419,6 +410,7 @@ class Raytrace(frame.Frame):
         Pr, Pp, Pz = -CosV*CosH, CosV*SinH, SinV
         Nr,Nz = self.normal_wrapper(ray)
         N_dot_P = Pr*Nr + Pz*Nz
+        N_dot_P = cast(npt.NDArray[np.float64],N_dot_P)
         Rr, Rp, Rz = Pr - 2*N_dot_P*Nr,  Pp, Pz - 2*N_dot_P*Nz
         
         Ve_theta1 = np.arctan(Rz/ np.sqrt(Rr**2+Rp**2))
@@ -491,6 +483,8 @@ class Raytrace(frame.Frame):
     
         R1, Z1 = R_dray_sta, Z_dray_sta
         R2, Z2 = R_dray_end, Z_dray_end
+
+        frame_type,frame_num = 0,0
         # 交点が存在するかの判定(直線)#############
         for i in tqdm(range(len(self.all_lines)), desc='calculating Lines'):
             R4, Z4 = self.all_lines[i].start[0]/1000, self.all_lines[i].start[1]/1000
@@ -792,7 +786,7 @@ class Raytrace(frame.Frame):
 
     def raytrace2(self,
         ray: Ray,
-        Lmax:     Union[np.ndarray,float] = 3.0,
+        Lmax:     Union[npt.NDArray[np.float64],float] = 3.0,
         Lnum:     int=500,
         ignore_1st_intersection:bool = False,
         ):
@@ -1016,8 +1010,8 @@ class Raytrace(frame.Frame):
                     L_1st[i,j] = LL[ index ,i,j]
                     L_2nd[i,j] = LL[ index+1,i,j]
 
-            frame_type :np.ndarray = self.intersect_info['frame_type']
-            frame_num  :np.ndarray = self.intersect_info['frame_num']
+            frame_type =cast(npt.NDArray[np.int8] ,self.intersect_info['frame_type'] )
+            frame_num  =cast(npt.NDArray[np.int8] ,self.intersect_info['frame_num'] ) 
 
 
             Lmin = L_1st
@@ -1043,14 +1037,12 @@ class Raytrace(frame.Frame):
             #self.frame_type_bk = self.intersect_info['frame_type']
             #self.frame_num_bk  = self.intersect_info['frame_num']  
             #self.index_1st_bk  = self.intersect_info['index_1st']  
-
-     
+    
             print((L_sol_bk-L_sol).max(),(L_sol_bk-L_sol).std()) 
 
         del self.intersect_info
-
         L_sol = (Lmin+Lmax) /2 
-        ray.set_raytraced(Length=L_sol, ref_type=frame_type, ref_num=frame_num)
+        ray.set_raytraced(Length=L_sol, ref_type=frame_type, ref_num=frame_num) #type: ignore
 
 
 
