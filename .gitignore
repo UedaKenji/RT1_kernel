@@ -134,4 +134,5 @@ test_reflection/*
 test_forward/*   
 test_local/*   
 test_av_tomography/*
+test_ignore_all/*
 .vscode/*
