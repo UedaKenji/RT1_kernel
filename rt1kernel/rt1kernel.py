@@ -34,6 +34,7 @@ except:
 __all__ = ['Kernel2D_scatter',
            'Kernel1D',
            'Kernel2D_grid',
+           'GibbsKer',
            'Observation_Matrix_integral',
            'Observation_Matrix',
            'Observation_Matrix_integral_load_model']
@@ -379,7 +380,9 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
         self.zI, self.rI = zI, rI
         self.nI = rI.size
+
         self.length_scale_sq: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]]= length_sq_fuction 
+        self.Lsq_I = self.length_scale_sq(self.rI,self.zI) 
         print('num of induced point is ',self.nI)
         return zI, rI
 
@@ -681,6 +684,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             self.add_bound=True
             rIb = np.concatenate([self.rI,self.r_bound])
             zIb = np.concatenate([self.zI,self.z_bound])
+
             self.rIb,self.zIb=rIb,zIb
             lI = self.length_scale(rIb,zIb)
             KII = GibbsKer(x0=rIb, x1=rIb, y0=zIb, y1=zIb, lx0=lI*s, lx1=lI*s, isotropy=True)
