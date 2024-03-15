@@ -35,11 +35,46 @@ sys.path.pop(0)
 
 __all__ = ['GPT_lin', 
            'GPT_av',  
+           'GPT_av_dense',  
            'GPT_cis', 
+           'GPT_cis_dense', 
            'GPT_log', 
-           'GPT_log_grid']
+           'GPT_log_grid',
+           'Diag']
 
 csr  = sps.csr_matrix
+
+
+class Diag(np.ndarray):
+    def __new__(cls, input_array):
+        obj = np.asarray(input_array).view(cls)
+        return obj
+
+    def __matmul__(self, other):
+        result = (other.T).__mul__(self)
+        # 計算結果を MyMatrix インスタンスとして返す
+        return (result.T).view(np.ndarray)
+        
+    def __rmatmul__(self, other):
+        #print("カスタム行列乗算演算を実行2")
+        result = other.__mul__(self)
+        # 計算結果を MyMatrix インスタンスとして返す
+        return (result).view(np.ndarray)
+    
+    
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        # inputs 内の MyMatrix インスタンスを np.ndarray に変換
+        inputs = tuple(x.view(np.ndarray) if isinstance(x,Diag) else x for x in inputs)
+        # ufunc 演算を実行
+        result = getattr(ufunc, method)(*inputs, **kwargs)
+        
+        if type(inputs[0])  == float or type(inputs[0])  == int or type(inputs[1])  == int or type(inputs[1])  == float:
+            return result.view(Diag)
+        
+        if method == 'reduce':
+            return np.asarray(result)
+        return result
+
 
 
 def csr_cos(A ,Exist)->csr:
@@ -320,7 +355,7 @@ class GPT_lin:
         self.sig_scale = sig_scale
         sig_array = sig_array.flatten()
         g_obs = g_obs.flatten()
-        self.sig_inv = 1/sig_array
+        self.sig_inv = 1/sig_array/self.sig_scale
         #self.sig2_inv = 1/sig_array**2
         H    = self.Obs.Hs[num].H
 
@@ -349,6 +384,16 @@ class GPT_lin:
 
         ax[2].tick_params( labelleft=False)
         plt.show()
+
+import scipy.linalg
+
+def log_det(A,scale=1):
+    try:
+        A = scipy.linalg.cholesky(A)
+        return np.sum(np.log(np.diag(A)))*2 + A.shape[0]*np.log(scale)
+    except:
+        lam,_ = np.linalg.eigh(A)
+        return np.sum(np.log(lam)) + A.shape[0]*np.log(scale)
 
 
 class GPT_av:
@@ -390,6 +435,7 @@ class GPT_av:
         self.K_f_inv[:self.nI ,:self.nI ] = self.K_a_inv[:,:]
         self.K_f_inv[ self.nI:, self.nI:] = self.K_v_inv[:,:]
 
+        self.log_det_K_f = log_det(self.K_a)+log_det(self.K_v)
         pass 
 
         
@@ -413,6 +459,7 @@ class GPT_av:
         H    = self.Obs.Hs_mask[0]
         self.sigiH   : sps.csr_matrix = sps.diags(self.sig_inv) @ H  
         self.sigiA = np.hstack((self.sig_inv*A_cos, self.sig_inv*A_sin))
+        self.log_det_Sig = 2*np.sum(np.log(sig_im))
     
 
     def calc_core(self,
@@ -423,7 +470,10 @@ class GPT_av:
         ):
         r_a = a - self.a_pri
         r_v = v - self.v_pri
+
+        self.r_a, self.r_v = r_a,r_v
         
+        self.sig_scale = sig_scale
         sig_scale_inv = 1/sig_scale
         DecV = sps.csr_matrix(self.Dec @ sps.diags(v))
         Hc = self.sigiH.multiply(csr_cos(DecV,self.Exist))
@@ -465,6 +515,26 @@ class GPT_av:
         delta_v = delta_f[self.nI:]
         return delta_a, delta_v,loss
     
+    
+    def postprocess(self,
+        consider_w2 :bool = True,
+        ):
+        if consider_w2:
+            K_inv = -self.laplace_Phi+self._W2()
+        else:
+            K_inv = -self.laplace_Phi
+        self.Kf_pos = np.linalg.inv(K_inv)
+        self.log_det_Kpos = log_det(self.Kf_pos)
+        loss_g = np.dot(self.resA,self.resA) 
+        loss_f = self.r_a@ (self.K_a_inv @ self.r_a) + self.r_v @(self.K_v_inv @ self.r_v)  
+
+        self.log_det_Sig2 = self.log_det_Sig + np.log(self.sig_scale)*self.H.shape[0]*2
+
+
+        self.mll = -loss_g -loss_f -self.log_det_Sig2 - self.log_det_K_f + self.log_det_Kpos
+        self.mll = 0.5*self.mll- 0.5*self.H.shape[0]*np.log(2*np.pi)
+
+    
     def K_pos(self,
         consider_w2 :bool = True,
         ):
@@ -472,6 +542,8 @@ class GPT_av:
             K_inv = -self.laplace_Phi+self._W2()
         else:
             K_inv = -self.laplace_Phi
+        Kpos = np.linalg.inv(K_inv)
+        log_det_Kpos = log_det(log_det_Kpos)
         return np.linalg.inv(K_inv)
 
     def _W2(self,
@@ -532,6 +604,229 @@ class GPT_av:
 
 GPT_cis = GPT_av
 
+
+
+
+class GPT_av_dense:
+    def __init__(self,
+        Obs: rt1kernel.Observation_Matrix_integral,
+        Kernel: rt1kernel.Kernel2D_scatter,
+        ) -> None:
+        self.Obs = Obs
+        self.rI = Obs.rI 
+        self.zI = Obs.zI 
+        self.nI = Obs.zI.size  
+        self.Kernel = Kernel
+        self.H   = Obs.Hs[0].H.toarray()
+        self.Dec = Obs.Hs[0].Dcos.toarray()
+        self.mask = Obs.mask
+        pass
+
+    def set_kernel(self,
+        K_a :np.ndarray,
+        K_v :np.ndarray,
+        a_pri:np.ndarray | float = 0,
+        v_pri:np.ndarray | float = 0,
+        regularization:float = 1e-5,
+        ):
+        K_a += regularization*np.eye(self.nI)
+        K_v += regularization*np.eye(self.nI)
+
+        self.K_a = 0.5*(K_a + K_a.T)
+        self.K_v = 0.5*(K_v + K_v.T)
+        K_a_inv = np.linalg.inv(self.K_a)
+        K_v_inv = np.linalg.inv(self.K_v)
+        self.K_a_inv = 0.5*(K_a_inv+K_a_inv.T)
+        self.K_v_inv = 0.5*(K_v_inv+K_v_inv.T)
+        self.a_pri = a_pri
+        self.v_pri = v_pri
+
+        self.K_f_inv = np.zeros((2*self.nI,2*self.nI))
+        self.K_f_inv[:self.nI ,:self.nI ] = self.K_a_inv[:,:]
+        self.K_f_inv[ self.nI:, self.nI:] = self.K_v_inv[:,:]
+
+        self.log_det_K_f = log_det(self.K_a)+log_det(self.K_v)
+        pass 
+
+        
+    def set_sig(self,
+        sig_im:np.ndarray,
+        A_cos:np.ndarray,
+        A_sin:np.ndarray,
+        num:int=0,
+        #sig_scale:float = 1.0,
+        ):
+        self.Acos_im = A_cos.reshape(*self.Obs.shape[:2])
+        self.Asin_im = A_sin.reshape(*self.Obs.shape[:2])
+        print(sig_im.shape)
+        sigma = sig_im[~self.mask]
+        A_cos = A_cos[~self.mask]
+        A_sin = A_sin[~self.mask]
+        self.sig_inv = 1/sigma
+        self.sig2_inv = 1/sigma**2
+        #Dcos  = 1.j*self.Obs.Hs[num].Dcos
+        #H    = self.Obs.Hs[num].H
+        H    = self.Obs.Hs_mask[0]
+        #self.sigiH = np.einsum('i,ij->ij',self.sig_inv,H )  
+        self.sigiH = Diag(self.sig_inv) @ H   
+        self.sigiA = np.hstack((self.sig_inv*A_cos, self.sig_inv*A_sin))
+        self.log_det_Sig = 2*np.sum(np.log(sig_im))
+    
+
+    def calc_core(self,
+        a:np.ndarray,
+        v:np.ndarray,
+        num:int=0,
+        sig_scale:float = 1.0
+        ):
+        r_a = a - self.a_pri
+        r_v = v - self.v_pri
+
+        self.r_a, self.r_v = r_a,r_v
+        
+        self.sig_scale = sig_scale
+        sig_scale_inv = 1/sig_scale
+        #DecV = sps.csr_matrix(self.Dec @ sps.diags(v))
+        #DecV = np.einsum('ij,j->ij',self.Dec, v)
+        DecV = self.Dec @ Diag(v) 
+        #Hc = self.sigiH.multiply(csr_cos(DecV,self.Exist))
+        #Hs = self.sigiH.multiply(DecV.sin())
+
+        Hc = self.sigiH * np.cos(DecV)
+        Hs = self.sigiH * np.sin(DecV)
+        Diag_exp_a = Diag(np.exp(a))
+        #self.Rc = sps.csr_matrix(Hc @ Exp_a )
+        self.Rc = Hc @ Diag_exp_a
+        #self.Rs = sps.csr_matrix(Hs @ Exp_a )
+        self.Rs = Hs @ Diag_exp_a
+        Ac = self.Rc.sum(axis=1)
+        As = self.Rs.sum(axis=1)
+        #Ac = np.asarray(self.Rc.sum(axis=1)).flatten()
+        #As = np.asarray(self.Rs.sum(axis=1)).flatten()
+        sigi_g  = np.hstack((Ac,As))
+        self.resA = sig_scale_inv *(sigi_g-self.sigiA)
+
+
+        self.Rc_Dec = self.Rc * self.Dec
+        self.Rs_Dec = self.Rs * self.Dec
+        #self.Rc_Dec = self.Rc.multiply(self.Dec)
+        #self.Rs_Dec = self.Rs.multiply(self.Dec)
+
+        Jac = np.vstack(
+               (np.hstack((self.Rc, -self.Rs_Dec)),
+                np.hstack((self.Rs,  self.Rc_Dec)))
+                ) *sig_scale_inv
+        
+        Jac_t = Jac.T
+        
+        nabla_Phi = -Jac_t @ self.resA - np.hstack((self.K_a_inv @r_a, self.K_v_inv @r_v)) #type: ignore
+
+        #W1 = sparse_dot_mkl.gram_matrix_mkl( sps.csr_matrix(Jac.T),dense=True,transpose=True)
+        #W1 = W1 + W1.T - np.diag(W1.diagonal())
+
+        W1 = Jac_t@Jac
+        loss = abs(nabla_Phi).mean()
+        # W2 = self._W2()
+
+        laplace_Phi = - W1  - self.K_f_inv # -W2*1
+        self.laplace_Phi = laplace_Phi
+        delta_f = - np.linalg.solve(laplace_Phi, nabla_Phi)
+        delta_f[delta_f<-5] = -5
+        delta_f[delta_f>+5] = +5 
+
+        delta_a = delta_f[:self.nI]
+        delta_v = delta_f[self.nI:]
+        return delta_a, delta_v,loss
+    
+    
+    def postprocess(self,
+        consider_w2 :bool = True,
+        ):
+        if consider_w2:
+            K_inv = -self.laplace_Phi+self._W2()
+        else:
+            K_inv = -self.laplace_Phi
+        self.Kf_pos = np.linalg.inv(K_inv)
+        self.log_det_Kpos = log_det(self.Kf_pos)
+        loss_g = np.dot(self.resA,self.resA) 
+        loss_f = self.r_a@ (self.K_a_inv @ self.r_a) + self.r_v @(self.K_v_inv @ self.r_v)  
+
+        self.log_det_Sig2 = self.log_det_Sig + np.log(self.sig_scale)*self.H.shape[0]*2
+
+
+        self.mll = -loss_g -loss_f -self.log_det_Sig2 - self.log_det_K_f + self.log_det_Kpos
+        self.mll = 0.5*self.mll- 0.5*self.H.shape[0]*np.log(2*np.pi)
+
+    
+    def K_pos(self,
+        consider_w2 :bool = True,
+        ):
+        if consider_w2:
+            K_inv = -self.laplace_Phi+self._W2()
+        else:
+            K_inv = -self.laplace_Phi
+        Kpos = np.linalg.inv(K_inv)
+        log_det_Kpos = log_det(log_det_Kpos)
+        return np.linalg.inv(K_inv)
+
+    def _W2(self,
+        ):
+
+        Rc_Dec2 =  self.Rc_Dec.multiply(self.Dec)
+        Rs_Dec2 =  self.Rs_Dec.multiply(self.Dec)
+
+        d_aa = sps.hstack((  self.Rc.T, self.Rs.T )) @ self.resA
+        d_vv = sps.hstack(( -Rc_Dec2.T, -Rs_Dec2.T )) @ self.resA
+        d_av = sps.hstack((-self.Rs_Dec.T,  self.Rc_Dec.T))  @ self.resA
+        
+        W2 = np.zeros((2*self.nI, 2*self.nI))
+        W2[:self.nI,  :self.nI ] = np.diag(d_aa)[:,:]
+        W2[ self.nI:, :self.nI ] = np.diag(d_av)[:,:]
+        W2[:self.nI ,  self.nI:] = np.diag(d_av)[:,:]
+        W2[ self.nI:,  self.nI:] = np.diag(d_vv)[:,:]
+
+        return W2
+
+
+
+    def check_diff(self,
+        a:np.ndarray,
+        v:np.ndarray):
+        m = self.H.shape[0]
+        fig,axs = plt_subplots(2,2,figsize=(8,8),sharex=True,sharey=True)
+
+        DecV = sps.csr_matrix(self.Dec @ sps.diags(v))
+        Hc = self.Obs.Hs_mask[0].multiply(csr_cos(DecV,self.Exist))
+        Hs = self.Obs.Hs_mask[0].multiply(DecV.sin())
+
+        g_cos = np.zeros(self.Obs.shape[:2])
+        g_cos[~self.mask] = Hc@np.exp(a)
+        g_sin = np.zeros(self.Obs.shape[:2])
+        g_sin[~self.mask] = Hs@np.exp(a)
+
+        #g_cos,g_sin = A.real,A.imag
+        
+        y_cos = self.Acos_im
+        y_sin = self.Asin_im
+        #y = self.sigiA
+        #y_cos = (1/self.sig_inv*y[:m]).reshape(*self.Obs.shape[:2])
+        #y_sin = (1/self.sig_inv*y[m:]).reshape(*self.Obs.shape[:2])
+        imshow_cbar(axs[0][0],g_cos,origin='lower')
+        imshow_cbar(axs[1][0],g_sin,origin='lower')
+        diff1 = (g_cos-y_cos)[~self.mask]
+        diff2 = (g_sin-y_sin)[~self.mask]
+        vmax = max(np.percentile(diff1,95),-np.percentile(diff1,5),np.percentile(diff2,95),-np.percentile(diff2,5)) #type: ignore
+        imshow_cbar(axs[0][1],g_cos-y_cos,cmap='RdBu_r',vmax=vmax,vmin=-vmax,origin='lower')
+        imshow_cbar(axs[1][1],g_sin-y_sin,cmap='RdBu_r',vmax=vmax,vmin=-vmax,origin='lower')
+        
+        axs[0][0].set_title(r'$g^{\cos}$')
+        axs[1][0].set_title(r'$g^{\sin}$')
+        axs[0][1].set_title(r'diff: $g^{\cos}-y^{\cos}$')
+        axs[1][1].set_title(r'diff: $g^{\sin}-y^{\sin}$')
+        plt.show()
+
+GPT_cis_dense = GPT_av_dense
+
 class GPT_log:
     def __init__(self,
         Obs: rt1kernel.Observation_Matrix_integral,
@@ -562,8 +857,20 @@ class GPT_log:
         g_obs   :np.ndarray,
         sig_scale:float=1.0,
         num:int=0,
+        out_scaling :bool =False,
         ):
+
         self.g_obs=g_obs.reshape(self.Obs.shape[:2])
+
+        
+        if out_scaling:
+            self.H_scale = self.Obs.projection(np.ones(self.nI),reshape=False).mean()
+            self.g_scale = self.g_obs[~self.mask].mean()
+            self.g_obs = 1/self.g_scale * self.g_obs
+        else :
+            self.H_scale = 1
+            self.g_scale = 1
+            
         g_obs =  self.g_obs[~self.mask]
         sig_im = sig_im[~self.mask]
 
@@ -572,9 +879,9 @@ class GPT_log:
         #self.sig2_inv = 1/sig_array**2
 
         #H    = self.Obs.Hs[num].H
-        H    = self.Obs.H_sum
+        H    = self.Obs.H_sum /self.H_scale
 
-        self.Sigi_obs = self.sig_inv* g_obs
+        self.Sigi_obs = self.sig_inv* ( g_obs )
         self.sigiH = sps.csr_matrix(sps.diags(self.sig_inv) @ H )
         sigiH_t = sps.csr_matrix( self.sigiH.T )
 
@@ -596,14 +903,14 @@ class GPT_log:
             
         fig,ax = plt_subplots(1,3,figsize=(10,4))
         ax = ax[0][:]
-        g = self.Obs.projection(np.exp(f))
+        g = self.Obs.projection(np.exp(f)) /self.H_scale
 
         if self.H_diff is not None :
             g += (self.H_diff@np.exp(f)).reshape(*self.Obs.shape[:2]) *  self.alpha_d
         imshow_cbar(ax[0],g,origin='lower')
-        ax[0].set_title('Hf')
-        vmax = np.percentile((abs(g-self.g_obs)[~self.mask]),95)
-        imshow_cbar(ax= ax[1],im0 = g-self.g_obs,vmin=-vmax,vmax=vmax,cmap='RdBu_r',origin='lower')
+        ax[0].set_title(r'Hf')
+        vmax = np.percentile((abs(g-self.g_obs )[~self.mask]),95)
+        imshow_cbar(ax= ax[1],im0 = g-self.g_obs   ,vmin=-vmax,vmax=vmax,cmap='RdBu_r',origin='lower')
         ax[1].set_title('diff_im')
         
         ax[2].hist((g-self.g_obs)[~self.mask],bins=50)
@@ -617,7 +924,10 @@ class GPT_log:
         f:np.ndarray,
         num:int=0,
         alpha_d:float = 0,
+        sig_scale :Optional[float] = None 
         ):
+        if sig_scale is not None:
+            self.sig_scale = sig_scale
         r_f = f - self.f_pri
         exp_f = np.exp(f)
         fxf = np.einsum('i,j->ij',exp_f,exp_f)
