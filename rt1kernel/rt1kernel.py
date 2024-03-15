@@ -521,12 +521,12 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             fig.savefig(name+'.png')
 
     def load_point(self,
-        rI: npt.NDArray[np.float64],
-        zI: npt.NDArray[np.float64],
-        rb: npt.NDArray[np.float64],
-        zb: npt.NDArray[np.float64],
-        length_sq_fuction: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]],
-        is_plot: bool = False,
+            rI: npt.NDArray[np.float64],
+            zI: npt.NDArray[np.float64],
+            rb: npt.NDArray[np.float64],
+            zb: npt.NDArray[np.float64],
+            length_sq_fuction: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]],
+            is_plot: bool = False,
         ) :  
         """
         set induced point by input existing data
@@ -641,9 +641,9 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
 
     def set_induced_point(self,
-        zI: npt.NDArray[np.float64],
-        rI: npt.NDArray[np.float64],
-        length_sq_fuction: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]],
+            zI: npt.NDArray[np.float64],
+            rI: npt.NDArray[np.float64],
+            length_sq_fuction: Callable[[npt.NDArray[np.float64],npt.NDArray[np.float64]],npt.NDArray[np.float64]],
         ) :     
         """
         set induced point by input existing data
@@ -663,12 +663,12 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         return np.sqrt(self.length_scale_sq(r,z))
     
     def set_grid_interface(self,
-        z_medium   : npt.NDArray[np.float64],
-        r_medium   : npt.NDArray[np.float64],
-        z_plot: npt.NDArray[np.float64] | None = None,
-        r_plot: npt.NDArray[np.float64] | None = None,
-        scale    : float = 1,
-        add_bound :bool=False,
+            z_medium   : npt.NDArray[np.float64],
+            r_medium   : npt.NDArray[np.float64],
+            z_plot: npt.NDArray[np.float64] | None = None,
+            r_plot: npt.NDArray[np.float64] | None = None,
+            scale    : float = 1,
+            add_bound :bool=False,
         ) :
         
         if not 'rI'  in dir(self):
@@ -778,17 +778,49 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
         H[H < 1e-5] = 0
 
         return Observation_Matrix(H=H, ray=ray)
+    
+    def create_obs_matrix_kernel(self,
+            ray  : rt1raytrace.Ray,
+            Lnum : int=100
+        ):
+
+        rIb,zIb = self.rIb,self.zIb
+        lIb = self.length_scale(rIb,zIb)
+        def phi(r:np.ndarray,z:np.ndarray):
+            s = 1
+            l = self.length_scale(r,z) 
+            return GibbsKer(x0 = r.flatten(),x1 = rIb, y0 = z.flatten(), y1 =zIb, lx0=l*s, lx1=lIb*s, isotropy=True)    
+
+
+
+
+        nIb = self.nI+self.nb
+        im_shape = ray.R1.shape
+        H = np.zeros((im_shape[0],im_shape[1],nIb))
+        Rray,_,Zray,L = ray.ZΦRL_ray(Lnum=Lnum)
+
+        for i in tqdm(range(im_shape[0])):
+            for j in range(im_shape[1]):
+                rray = Rray[:,i,j]
+                zray = Zray[:,i,j]
+                dL = L[1,i,j]-L[0,i,j]
+                H[i,j] = np.sum( dL*(phi(rray,zray)@self.KII_inv),axis=0)
+
+        H = H.reshape((im_shape[0]*im_shape[1],nIb))
+
+        H = H[:,:self.nI]
+        return H 
 
     def set_kernel(self,
                    
-        length_scale:float=1,
-        is_bound :bool=True ,
-        bound_value : float=0,
-        bound_sig : float = 0.1,
-        bound_space : float = 1e-2,
-        is_static_kernel:bool = True,  
-        zero_value_index = None,
-        mean: float= 0,
+            length_scale:float=1,
+            is_bound :bool=True ,
+            bound_value : float=0,
+            bound_sig : float = 0.1,
+            bound_space : float = 1e-2,
+            is_static_kernel:bool = True,  
+            zero_value_index = None,
+            mean: float= 0,
 
         )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
 
@@ -853,13 +885,13 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
     
     def set_unifom_kernel(self,
                           
-        length_scale:float=0.1,
-        is_bound :bool=True ,
-        mean_value : float=0.,
-        bound_value : float=0,
-        bound_sig : float = 0.1,
-        bound_space : float = 1e-2,
-        is_static_kernel:bool = False,  
+            length_scale:float=0.1,
+            is_bound :bool=True ,
+            mean_value : float=0.,
+            bound_value : float=0,
+            bound_sig : float = 0.1,
+            bound_space : float = 1e-2,
+            is_static_kernel:bool = False,  
 
         )->Tuple[npt.NDArray[np.float64],npt.NDArray[np.float64]]:
 
