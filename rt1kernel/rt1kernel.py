@@ -695,6 +695,7 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
             lI = self.length_scale(self.rI,self.zI)
             KII = GibbsKer(x0=self.rI, x1=self.rI, y0=self.zI, y1=self.zI, lx0=lI*s, lx1=lI*s, isotropy=True)
             self.KII_inv = np.linalg.inv(KII+1e-5*np.eye(self.nI))
+            
             self.KpI = GibbsKer(x0 = R_medium.flatten(),x1 = self.rI, y0 = Z_medium.flatten(), y1 =self.zI, lx0=lm*s, lx1=lI*s, isotropy=True)
             
         
@@ -721,7 +722,28 @@ class Kernel2D_scatter(rt1plotpy.frame.Frame):
 
             self.Λ_z1r1_inv = 1 / np.einsum('i,j->ij',λ_z1,λ_r1)
 
+    def convert(self, 
+        r:npt.NDArray[np.float64],
+        z:npt.NDArray[np.float64],
+        fI:npt.NDArray[np.float64],
+        boundary:float=0,
+        ) -> npt.NDArray[np.float64] : 
+        
+        if self.add_bound:
+            fI = np.concatenate([fI,boundary*np.ones(self.nb)])
             
+            rIb = np.concatenate([self.rI,self.r_bound])
+            zIb = np.concatenate([self.zI,self.z_bound])
+            lI = self.length_scale(rIb,zIb)
+
+            self.rIb,self.zIb=rIb,zIb
+            lI = self.length_scale(rIb,zIb)
+            s = 1
+            lm = self.length_scale(r.flatten(), z.flatten())
+            phi = GibbsKer(x0 = r.flatten(),x1 = rIb, y0 = z.flatten(), y1 =zIb, lx0=lm*s, lx1=lI*s, isotropy=True)
+    
+        return phi@ (self.KII_inv @ fI), self.KII_inv @ fI
+        
     def convert_grid_media(self,
         fI:npt.NDArray[np.float64],
         boundary:float=0
